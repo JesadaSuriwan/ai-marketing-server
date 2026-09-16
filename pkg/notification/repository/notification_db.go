@@ -44,7 +44,10 @@ func (r notificationRepositoryDB) Delete(tx *sqlx.Tx, id int) error {
 func (r notificationRepositoryDB) BelongsToUser(id, userId int) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowx(
-		`SELECT EXISTS(SELECT 1 FROM notifications n JOIN companies c ON n.company_id = c.id WHERE n.id = $1 AND c.user_id = $2)`,
+		`SELECT EXISTS(SELECT 1 FROM notifications n JOIN companies c ON n.company_id = c.id WHERE n.id = $1 AND (
+			c.user_id = $2
+			OR EXISTS(SELECT 1 FROM company_members cm WHERE cm.company_id = c.id AND cm.user_id = $2 AND cm.status = 'active')
+		))`,
 		id, userId,
 	).Scan(&exists)
 	return exists, err

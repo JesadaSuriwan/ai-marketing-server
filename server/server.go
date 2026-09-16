@@ -12,17 +12,29 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 	"github.com/ai-marketing/ai-marketing-server/config"
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/middlewares"
+	promptRepository "github.com/ai-marketing/ai-marketing-server/pkg/prompt/repository"
+	promptRunService "github.com/ai-marketing/ai-marketing-server/pkg/promptrun/service"
+	"github.com/ai-marketing/ai-marketing-server/pkg/scheduler"
+	usageService "github.com/ai-marketing/ai-marketing-server/pkg/usage/service"
+	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
 type ginServer struct {
 	app  *gin.Engine
 	db   *sqlx.DB
 	conf *config.Config
+
+	// Set by initPromptRouter; reused by the scheduler so it runs the exact
+	// same run + citation-extraction pipeline as the manual endpoints.
+	promptRunService promptRunService.PromptRunService
+
+	// Set by initUsageRouter, before every other router that logs AI-call
+	// cost (promptrun, promptsuggestion, recommendation) is initialized.
+	usageService usageService.UsageService
 }
 
 var (
@@ -63,10 +75,13 @@ func (s *ginServer) Start() {
 
 	s.app.GET("/health", s.healthCheck)
 
+	s.initUsageRouter()
+
 	s.initAuthRouter()
 	s.initUserRouter()
 	s.initCompanyRouter()
 	s.initBrandRouter()
+	s.initBrandDomainRouter()
 	s.initCategoryRouter()
 	s.initPromptRouter()
 	s.initVisibilityRouter()
@@ -74,8 +89,21 @@ func (s *ginServer) Start() {
 	s.initNotificationRouter()
 	s.initApiKeyRouter()
 	s.initMemberRouter()
+	s.initClaudeApprovalRouter()
 	s.initSubdomainRouter()
 	s.initDashboardRouter()
+	s.initPromptSuggestionRouter()
+	s.initRecommendationRuleRouter()
+	s.initRecommendationRouter()
+
+	if s.conf.Scheduler != nil && s.conf.Scheduler.Enabled {
+		sched := scheduler.New(s.promptRunService, promptRepository.NewPromptRepositoryDB(s.db))
+		if err := sched.Start(s.conf.Scheduler.CronExpression); err != nil {
+			logs.Error(err)
+		}
+	} else {
+		logs.Info("Scheduler disabled (scheduler.enabled=false in config.yaml)")
+	}
 
 	url := fmt.Sprintf(":%d", s.conf.Server.Port)
 	srv := &http.Server{

@@ -8,7 +8,7 @@ type CategoryData struct {
 }
 
 type CreateCategoryRequest struct {
-	CompanyId int    `json:"company_id" binding:"required"`
+	CompanyId int    `json:"company_id,string" binding:"required"`
 	Name      string `json:"name" binding:"required"`
 }
 

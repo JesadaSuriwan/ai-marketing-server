@@ -42,7 +42,10 @@ func (r categoryRepositoryDB) BelongsToUser(id, userId int) (bool, error) {
 		SELECT EXISTS(
 			SELECT 1 FROM prompt_categories pc
 			JOIN companies c ON pc.company_id = c.id
-			WHERE pc.id = $1 AND c.user_id = $2
+			WHERE pc.id = $1 AND (
+				c.user_id = $2
+				OR EXISTS(SELECT 1 FROM company_members cm WHERE cm.company_id = c.id AND cm.user_id = $2 AND cm.status = 'active')
+			)
 		)`, id, userId)
 	return owned, err
 }

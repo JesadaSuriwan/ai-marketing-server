@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/pkg/subdomain/service"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 type subdomainHandler struct {

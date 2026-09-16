@@ -13,10 +13,11 @@ type LoginRequest struct {
 }
 
 type UserData struct {
-	Id       int    `json:"id"`
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Initials string `json:"initials"`
+	Id                 int    `json:"id"`
+	Email              string `json:"email"`
+	Name               string `json:"name"`
+	Initials           string `json:"initials"`
+	MustChangePassword bool   `json:"must_change_password"`
 }
 
 type AuthResponse struct {
@@ -31,8 +32,14 @@ type SimpleResponse struct {
 	Desc   string `json:"desc"`
 }
 
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=6"`
+}
+
 type AuthService interface {
 	Register(req RegisterRequest) (*AuthResponse, string, error)
 	Login(req LoginRequest) (*AuthResponse, string, error)
 	Me(userId int) (*AuthResponse, error)
+	ChangePassword(userId int, req ChangePasswordRequest) (*SimpleResponse, error)
 }

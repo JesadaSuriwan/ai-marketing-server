@@ -15,10 +15,13 @@ type CitationData struct {
 	Id                int                 `json:"id"`
 	PromptId          int                 `json:"prompt_id"`
 	BrandId           *int                `json:"brand_id"`
+	BrandName         *string             `json:"brand_name"`
 	Ranking           int                 `json:"ranking"`
 	Content           string              `json:"content"`
 	Url               *string             `json:"url"`
 	AiPlatform        *string             `json:"ai_platform"`
+	SourceType        *string             `json:"source_type"`
+	TargetCountry     *string             `json:"target_country"`
 	DateDiscovered    *string             `json:"date_discovered"`
 	LastChecked       *string             `json:"last_checked"`
 	Sentiment         string              `json:"sentiment"`
@@ -34,8 +37,8 @@ type CitationData struct {
 }
 
 type CreateCitationRequest struct {
-	PromptId          int     `json:"prompt_id" binding:"required"`
-	BrandId           *int    `json:"brand_id"`
+	PromptId          int     `json:"prompt_id,string" binding:"required"`
+	BrandId           *int    `json:"brand_id,string"`
 	Ranking           int     `json:"ranking"`
 	Content           string  `json:"content" binding:"required"`
 	Url               *string `json:"url"`
@@ -52,7 +55,7 @@ type CreateCitationRequest struct {
 }
 
 type UpdateCitationRequest struct {
-	BrandId           *int    `json:"brand_id"`
+	BrandId           *int    `json:"brand_id,string"`
 	Ranking           int     `json:"ranking"`
 	Content           string  `json:"content"`
 	Url               *string `json:"url"`
@@ -94,7 +97,7 @@ type SimpleResponse struct {
 }
 
 type CitationService interface {
-	GetAll(promptId int) (*CitationListResponse, error)
+	GetAll(promptId int, from, to string) (*CitationListResponse, error)
 	Create(req CreateCitationRequest) (*SimpleResponse, error)
 	GetById(id, userId int) (*CitationResponse, error)
 	Update(id, userId int, req UpdateCitationRequest) (*SimpleResponse, error)

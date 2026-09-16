@@ -54,13 +54,21 @@ func (r brandRepositoryDB) UpdateStatus(tx *sqlx.Tx, id int, status string) erro
 	return err
 }
 
+func (r brandRepositoryDB) ClearOwn(tx *sqlx.Tx, companyId, exceptId int) error {
+	_, err := tx.Exec(`UPDATE brands SET is_own = FALSE WHERE company_id = $1 AND id != $2`, companyId, exceptId)
+	return err
+}
+
 func (r brandRepositoryDB) BelongsToUser(id, userId int) (bool, error) {
 	var owned bool
 	err := r.db.Get(&owned, `
 		SELECT EXISTS(
 			SELECT 1 FROM brands b
 			JOIN companies c ON b.company_id = c.id
-			WHERE b.id = $1 AND c.user_id = $2
+			WHERE b.id = $1 AND (
+				c.user_id = $2
+				OR EXISTS(SELECT 1 FROM company_members cm WHERE cm.company_id = c.id AND cm.user_id = $2 AND cm.status = 'active')
+			)
 		)`, id, userId)
 	return owned, err
 }

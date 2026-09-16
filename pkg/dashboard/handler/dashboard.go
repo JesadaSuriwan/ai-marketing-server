@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/pkg/dashboard/service"
+	"github.com/gin-gonic/gin"
 )
 
 type dashboardHandler struct {
@@ -154,7 +154,9 @@ func (h dashboardHandler) GetPromptRankings(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetPromptRankings(promptId, companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	result, err := h.dashboardService.GetPromptRankings(promptId, companyId, from, to)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -168,7 +170,9 @@ func (h dashboardHandler) GetPromptsOverview(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetPromptsOverview(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	result, err := h.dashboardService.GetPromptsOverview(companyId, from, to)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -183,6 +187,25 @@ func (h dashboardHandler) GetBrandRanking(c *gin.Context) {
 		return
 	}
 	result, err := h.dashboardService.GetBrandRanking(companyId)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h dashboardHandler) GetBrandCitations(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	brandId, err := strconv.Atoi(c.Query("brand_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid brand_id"))
+		return
+	}
+	result, err := h.dashboardService.GetBrandCitations(companyId, brandId)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -232,6 +255,20 @@ func (h dashboardHandler) GetCitationURLs(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+func (h dashboardHandler) GetCitationWinnersLosers(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	result, err := h.dashboardService.GetCitationWinnersLosers(companyId)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h dashboardHandler) GetCitationURLPrompts(c *gin.Context) {
 	companyId, err := strconv.Atoi(c.Query("company_id"))
 	if err != nil {
@@ -262,7 +299,9 @@ func (h dashboardHandler) GetPromptDomains(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetPromptDomains(promptId, companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	result, err := h.dashboardService.GetPromptDomains(promptId, companyId, from, to)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

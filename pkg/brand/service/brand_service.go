@@ -82,6 +82,13 @@ func (s brandService) Create(req CreateBrandRequest) (*BrandResponse, error) {
 		return nil, errs.NewUnexpectedError()
 	}
 
+	if req.IsOwn {
+		if err = s.brandRepository.ClearOwn(tx, req.CompanyId, id); err != nil {
+			logs.Error(err)
+			return nil, errs.NewUnexpectedError()
+		}
+	}
+
 	if err = tx.Commit(); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -107,6 +114,11 @@ func (s brandService) Update(id, userId int, req UpdateBrandRequest) (*SimpleRes
 		return nil, err
 	}
 
+	existing, err := s.brandRepository.GetById(id)
+	if err != nil {
+		return nil, errs.NewNotFoundError("brand not found")
+	}
+
 	tx, err := s.brandRepository.NewTransaction()
 	if err != nil {
 		logs.Error(err)
@@ -128,6 +140,13 @@ func (s brandService) Update(id, userId int, req UpdateBrandRequest) (*SimpleRes
 	if err = s.brandRepository.Update(tx, b); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
+	}
+
+	if req.IsOwn {
+		if err = s.brandRepository.ClearOwn(tx, existing.CompanyId, id); err != nil {
+			logs.Error(err)
+			return nil, errs.NewUnexpectedError()
+		}
 	}
 
 	if err = tx.Commit(); err != nil {

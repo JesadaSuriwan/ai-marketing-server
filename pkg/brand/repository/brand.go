@@ -23,5 +23,8 @@ type BrandRepository interface {
 	Update(tx *sqlx.Tx, b Brand) error
 	Delete(tx *sqlx.Tx, id int) error
 	UpdateStatus(tx *sqlx.Tx, id int, status string) error
+	// ClearOwn unsets is_own on every other brand in the company — enforces
+	// "at most one own brand per company", which the dashboard queries assume.
+	ClearOwn(tx *sqlx.Tx, companyId, exceptId int) error
 	BelongsToUser(id, userId int) (bool, error)
 }

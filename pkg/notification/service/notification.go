@@ -12,8 +12,8 @@ type NotificationData struct {
 }
 
 type CreateNotificationRequest struct {
-	UserId      int    `json:"user_id" binding:"required"`
-	CompanyId   int    `json:"company_id" binding:"required"`
+	UserId      int    `json:"user_id,string" binding:"required"`
+	CompanyId   int    `json:"company_id,string" binding:"required"`
 	Type        string `json:"type" binding:"required"`
 	Title       string `json:"title" binding:"required"`
 	Description string `json:"description" binding:"required"`

@@ -20,6 +20,15 @@ func (r subdomainRepositoryDB) GetAll(companyId int) ([]Subdomain, error) {
 	return list, err
 }
 
+func (r subdomainRepositoryDB) GetById(id int) (*Subdomain, error) {
+	sub := Subdomain{}
+	err := r.db.Get(&sub, `SELECT id, company_id, subdomain, status, created_at FROM subdomains WHERE id = $1`, id)
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
+}
+
 func (r subdomainRepositoryDB) Create(tx *sqlx.Tx, s Subdomain) (int, error) {
 	var id int
 	err := tx.QueryRowx(`INSERT INTO subdomains (company_id, subdomain, status) VALUES ($1,$2,$3) RETURNING id`, s.CompanyId, s.Subdomain, s.Status).Scan(&id)
@@ -29,13 +38,4 @@ func (r subdomainRepositoryDB) Create(tx *sqlx.Tx, s Subdomain) (int, error) {
 func (r subdomainRepositoryDB) Delete(tx *sqlx.Tx, id int) error {
 	_, err := tx.Exec(`DELETE FROM subdomains WHERE id=$1`, id)
 	return err
-}
-
-func (r subdomainRepositoryDB) BelongsToUser(id, userId int) (bool, error) {
-	var exists bool
-	err := r.db.QueryRowx(
-		`SELECT EXISTS(SELECT 1 FROM subdomains s JOIN companies c ON s.company_id = c.id WHERE s.id = $1 AND c.user_id = $2)`,
-		id, userId,
-	).Scan(&exists)
-	return exists, err
 }

@@ -1,0 +1,15 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+main
+*.exe
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+config.yaml

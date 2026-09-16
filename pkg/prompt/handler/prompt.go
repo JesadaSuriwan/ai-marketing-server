@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/service"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 type promptHandler struct {
@@ -79,6 +79,28 @@ func (h promptHandler) Update(c *gin.Context) {
 	}
 
 	result, err := h.promptService.Update(id, userId.(int), req)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h promptHandler) SetActive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid id"))
+		return
+	}
+	userId, _ := c.Get("userId")
+
+	req := service.SetActiveRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errs.HandleError(c, errs.NewBadRequestError(err.Error()))
+		return
+	}
+
+	result, err := h.promptService.SetActive(id, userId.(int), req.Active)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

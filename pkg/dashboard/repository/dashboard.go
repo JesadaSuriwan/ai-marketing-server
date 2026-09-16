@@ -47,12 +47,12 @@ type CompanyMetrics struct {
 }
 
 type PromptRanking struct {
-	Ranking         int     `db:"ranking"`
-	Brand           string  `db:"brand"`
-	Sentiment       string  `db:"sentiment"`
-	BrandPositioning string  `db:"brand_positioning"`
-	IsCompetitor    bool    `db:"is_competitor"`
-	Visibility      int     `db:"visibility"`
+	Ranking          int    `db:"ranking"`
+	Brand            string `db:"brand"`
+	Sentiment        string `db:"sentiment"`
+	BrandPositioning string `db:"brand_positioning"`
+	IsCompetitor     bool   `db:"is_competitor"`
+	Visibility       int    `db:"visibility"`
 }
 
 type PromptDomain struct {
@@ -61,12 +61,13 @@ type PromptDomain struct {
 	AvgCitation  float64 `db:"avg_citation"`
 	IsCompetitor bool    `db:"is_competitor"`
 	Snippet      string  `db:"snippet"`
+	SourceType   string  `db:"source_type"`
 }
 
 type PromptOverview struct {
 	PromptId             int    `db:"prompt_id"`
 	Title                string `db:"title"`
-	Category             string `db:"category"`
+	Tag                  string `db:"tag"`
 	BrandCoverage        int    `db:"brand_coverage"`
 	BrandSentiment       int    `db:"brand_sentiment"`
 	BrandMentions        int    `db:"brand_mentions"`
@@ -74,9 +75,12 @@ type PromptOverview struct {
 	DomainCitations      int    `db:"domain_citations"`
 	TotalDomainCitations int    `db:"total_domain_citations"`
 	Competitors          string `db:"competitors"`
+	Countries            string `db:"countries"`
+	Active               bool   `db:"active"`
 }
 
 type BrandRankingRow struct {
+	Id             int     `db:"id"`
 	Rank           int     `db:"rank"`
 	Name           string  `db:"name"`
 	IsOwn          bool    `db:"is_own"`
@@ -85,6 +89,18 @@ type BrandRankingRow struct {
 	BrandCoverage  float64 `db:"brand_coverage"`
 	ShareOfVoice   float64 `db:"share_of_voice"`
 	AvgPosition    float64 `db:"avg_position"`
+}
+
+// BrandCitation is one URL that cited a specific brand — the real
+// replacement for BrandDetail's old hardcoded "Visibility"/"Content" mock
+// data. Engines is comma-joined since a URL can be cited by more than one.
+type BrandCitation struct {
+	Url      string `db:"url"`
+	Title    string `db:"title"`
+	Domain   string `db:"domain"`
+	Engines  string `db:"engines"`
+	Cited    int    `db:"cited"`
+	LastSeen string `db:"last_seen"`
 }
 
 type TopPromptByBrand struct {
@@ -107,12 +123,43 @@ type CitationURLDetail struct {
 	Competitors    string `db:"competitors"`
 	Domain         string `db:"domain"`
 	DomainCategory string `db:"domain_category"`
+	SourceType     string `db:"source_type"`
 	Cited          int    `db:"cited"`
+	// Engines is a comma-joined list of every ai_platform that has cited
+	// this URL (e.g. "chatgpt,claude") — a URL can be cited by more than one.
+	Engines string `db:"engines"`
+	// Tags is a comma-joined list of the distinct prompt category/tag names
+	// across every prompt that cited this URL.
+	Tags string `db:"tags"`
+	// TargetCountry is an ISO 3166-1 alpha-2 code, empty when undetermined —
+	// see citations.target_country / detectCountryFromTLD.
+	TargetCountry string `db:"target_country"`
 }
 
 type CitationURLPrompt struct {
 	PromptId int    `db:"prompt_id"`
 	Title    string `db:"title"`
+	// Engines is a comma-joined list of the distinct ai_platform values that
+	// cited this URL when this prompt ran.
+	Engines string `db:"engines"`
+	// Sentiment and Ranking are the best-ranked citation row's own values for
+	// this (prompt, url) pair — same "pick the top-ranked row as
+	// representative" idiom GetPromptRankings uses, not a synthetic average.
+	Sentiment string `db:"sentiment"`
+	Ranking   int    `db:"ranking"`
+	// CitationFrequency sums citation_frequency across every engine's
+	// citation row for this (prompt, url) pair.
+	CitationFrequency int `db:"citation_frequency"`
+}
+
+// CitationURLChange is one URL's citation count in two comparison windows —
+// the raw input to Top Winners/Losers. Percent-change and New/Dropped
+// labeling happens in the service layer, not here.
+type CitationURLChange struct {
+	Url           string `db:"url"`
+	Title         string `db:"title"`
+	CurrentCount  int    `db:"current_count"`
+	PreviousCount int    `db:"previous_count"`
 }
 
 type DashboardRepository interface {
@@ -124,12 +171,14 @@ type DashboardRepository interface {
 	GetPlatformBreakdown(companyId int) ([]PlatformBreakdown, error)
 	GetPromptTrend(promptId, companyId int, interval, from, to string) ([]VisibilityTrendPoint, error)
 	GetCompanyMetrics(companyId int) (*CompanyMetrics, error)
-	GetPromptRankings(promptId, companyId int) ([]PromptRanking, error)
-	GetPromptDomains(promptId, companyId int) ([]PromptDomain, error)
+	GetPromptRankings(promptId, companyId int, from, to string) ([]PromptRanking, error)
+	GetPromptDomains(promptId, companyId int, from, to string) ([]PromptDomain, error)
 	GetBrandRanking(companyId int) ([]BrandRankingRow, error)
 	GetTopPromptsByBrand(companyId int) ([]TopPromptByBrand, error)
 	GetTopCitationURLs(companyId int) ([]CitationURL, error)
-	GetPromptsOverview(companyId int) ([]PromptOverview, error)
+	GetPromptsOverview(companyId int, from, to string) ([]PromptOverview, error)
 	GetCitationURLs(companyId int) ([]CitationURLDetail, error)
 	GetCitationURLPrompts(url string, companyId int) ([]CitationURLPrompt, error)
+	GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo string) ([]CitationURLChange, error)
+	GetBrandCitations(companyId, brandId int) ([]BrandCitation, error)
 }

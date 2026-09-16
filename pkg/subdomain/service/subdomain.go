@@ -9,7 +9,7 @@ type SubdomainData struct {
 }
 
 type CreateSubdomainRequest struct {
-	CompanyId int    `json:"company_id" binding:"required"`
+	CompanyId int    `json:"company_id,string" binding:"required"`
 	Subdomain string `json:"subdomain" binding:"required"`
 }
 

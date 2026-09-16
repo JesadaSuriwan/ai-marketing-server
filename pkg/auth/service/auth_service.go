@@ -63,10 +63,11 @@ func (s authService) Register(req RegisterRequest) (*AuthResponse, string, error
 		Status: true,
 		Desc:   "Register successful",
 		Data: UserData{
-			Id:       id,
-			Email:    req.Email,
-			Name:     req.Name,
-			Initials: req.Initials,
+			Id:                 id,
+			Email:              req.Email,
+			Name:               req.Name,
+			Initials:           req.Initials,
+			MustChangePassword: false,
 		},
 	}
 
@@ -93,10 +94,11 @@ func (s authService) Login(req LoginRequest) (*AuthResponse, string, error) {
 		Status: true,
 		Desc:   "Login successful",
 		Data: UserData{
-			Id:       user.Id,
-			Email:    user.Email,
-			Name:     user.Name,
-			Initials: user.Initials,
+			Id:                 user.Id,
+			Email:              user.Email,
+			Name:               user.Name,
+			Initials:           user.Initials,
+			MustChangePassword: user.MustChangePassword,
 		},
 	}
 
@@ -113,12 +115,53 @@ func (s authService) Me(userId int) (*AuthResponse, error) {
 		Status: true,
 		Desc:   "Get user successful",
 		Data: UserData{
-			Id:       user.Id,
-			Email:    user.Email,
-			Name:     user.Name,
-			Initials: user.Initials,
+			Id:                 user.Id,
+			Email:              user.Email,
+			Name:               user.Name,
+			Initials:           user.Initials,
+			MustChangePassword: user.MustChangePassword,
 		},
 	}
 
 	return response, nil
+}
+
+// ChangePassword always requires the current password — this covers both a
+// voluntary change and the forced first change after logging in with a
+// temp password (the temp password doubles as "current" in that case), so
+// there's a single consistent security model instead of two code paths.
+func (s authService) ChangePassword(userId int, req ChangePasswordRequest) (*SimpleResponse, error) {
+	user, err := s.authRepository.GetUserById(userId)
+	if err != nil {
+		return nil, errs.NewNotFoundError("user not found")
+	}
+
+	if !utils.CheckPassword(req.CurrentPassword, user.Password) {
+		return nil, errs.NewBadRequestError("current password is incorrect")
+	}
+
+	hashed, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	tx, err := s.authRepository.NewTransaction()
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	defer tx.Rollback()
+
+	if err = s.authRepository.UpdatePassword(tx, userId, hashed); err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	if err = tx.Commit(); err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	return &SimpleResponse{Status: true, Desc: "Password changed successfully"}, nil
 }

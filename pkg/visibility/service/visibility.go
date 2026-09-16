@@ -18,8 +18,8 @@ type PlatformBreakdownData struct {
 }
 
 type CreateVisibilityRequest struct {
-	BrandId  int     `json:"brand_id" binding:"required"`
-	PromptId *int    `json:"prompt_id"`
+	BrandId  int     `json:"brand_id,string" binding:"required"`
+	PromptId *int    `json:"prompt_id,string"`
 	Platform string  `json:"platform" binding:"required"`
 	Score    float64 `json:"score"`
 	Mentions int     `json:"mentions"`

@@ -3,24 +3,34 @@ package service
 import (
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
+	"github.com/ai-marketing/ai-marketing-server/pkg/permission"
 	"github.com/ai-marketing/ai-marketing-server/pkg/subdomain/repository"
+	"github.com/jmoiron/sqlx"
 )
 
 type subdomainService struct {
 	subdomainRepository repository.SubdomainRepository
+	db                  *sqlx.DB
 }
 
-func NewSubdomainService(subdomainRepository repository.SubdomainRepository) SubdomainService {
-	return subdomainService{subdomainRepository}
+func NewSubdomainService(subdomainRepository repository.SubdomainRepository, db *sqlx.DB) SubdomainService {
+	return subdomainService{subdomainRepository, db}
 }
 
+// verifyOwnership additionally requires Admin/Team Lead — Additional Domains
+// is a workspace setting, and Specialists can't edit any setting except Tags.
 func (s subdomainService) verifyOwnership(id, userId int) error {
-	ok, err := s.subdomainRepository.BelongsToUser(id, userId)
+	sub, err := s.subdomainRepository.GetById(id)
+	if err != nil {
+		return errs.NewNotFoundError("subdomain not found")
+	}
+
+	role, err := permission.EffectiveRole(s.db, sub.CompanyId, userId)
 	if err != nil {
 		logs.Error(err)
 		return errs.NewUnexpectedError()
 	}
-	if !ok {
+	if !permission.Allowed(role, permission.Admin, permission.TeamLead) {
 		return errs.NewForbiddenError("access denied")
 	}
 	return nil

@@ -1,21 +1,43 @@
 package service
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
+	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
+	"github.com/ai-marketing/ai-marketing-server/pkg/permission"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/repository"
+	promptRunService "github.com/ai-marketing/ai-marketing-server/pkg/promptrun/service"
+	"github.com/jmoiron/sqlx"
 )
 
 type promptService struct {
-	promptRepository repository.PromptRepository
+	promptRepository  repository.PromptRepository
+	companyRepository companyRepository.CompanyRepository
+	promptRunService  promptRunService.PromptRunService
+	db                *sqlx.DB
 }
 
-func NewPromptService(promptRepository repository.PromptRepository) PromptService {
-	return promptService{promptRepository}
+func NewPromptService(
+	promptRepository repository.PromptRepository,
+	companyRepository companyRepository.CompanyRepository,
+	promptRunService promptRunService.PromptRunService,
+	db *sqlx.DB,
+) PromptService {
+	return promptService{promptRepository, companyRepository, promptRunService, db}
 }
 
 func toPromptData(p repository.Prompt) PromptData {
-	return PromptData{Id: p.Id, CompanyId: p.CompanyId, CategoryId: p.CategoryId, Title: p.Title, Content: p.Content, CreatedAt: p.CreatedAt}
+	countries := []string{}
+	if p.Countries != "" {
+		countries = strings.Split(p.Countries, ",")
+	}
+	return PromptData{
+		Id: p.Id, CompanyId: p.CompanyId, TagId: p.TagId, TagName: p.TagName, Countries: countries,
+		Title: p.Title, Content: p.Content, Active: p.Active, CreatedAt: p.CreatedAt,
+	}
 }
 
 func (s promptService) verifyOwnership(id, userId int) error {
@@ -42,6 +64,22 @@ func (s promptService) GetAll(companyId int) (*PromptListResponse, error) {
 }
 
 func (s promptService) Create(req CreatePromptRequest) (*PromptResponse, error) {
+	company, err := s.companyRepository.GetById(req.CompanyId)
+	if err != nil {
+		return nil, errs.NewNotFoundError("company not found")
+	}
+	activeCount, err := s.promptRepository.CountActive(req.CompanyId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	if activeCount >= company.PromptLimit {
+		return nil, errs.NewBadRequestError(fmt.Sprintf(
+			"you've reached your active prompt limit of %d — deactivate a prompt or raise the limit in Settings",
+			company.PromptLimit,
+		))
+	}
+
 	tx, err := s.promptRepository.NewTransaction()
 	if err != nil {
 		logs.Error(err)
@@ -50,14 +88,19 @@ func (s promptService) Create(req CreatePromptRequest) (*PromptResponse, error) 
 	defer tx.Rollback()
 
 	p := repository.Prompt{
-		CompanyId:  req.CompanyId,
-		CategoryId: req.CategoryId,
-		Title:      req.Title,
-		Content:    req.Content,
+		CompanyId: req.CompanyId,
+		TagId:     req.TagId,
+		Title:     req.Title,
+		Content:   req.Content,
 	}
 
 	id, err := s.promptRepository.Create(tx, p)
 	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	if err = s.promptRepository.SetCountries(tx, id, req.CountryCodes); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
 	}
@@ -67,8 +110,21 @@ func (s promptService) Create(req CreatePromptRequest) (*PromptResponse, error) 
 		return nil, errs.NewUnexpectedError()
 	}
 
-	p.Id = id
-	return &PromptResponse{Status: true, Desc: "Prompt created successfully", Data: toPromptData(p)}, nil
+	// Best-effort, fire-and-forget: give the new prompt real data right away
+	// instead of waiting for the next scheduled sweep. A full multi-engine
+	// run can take 10-30s, so this must not block the HTTP response.
+	go func() {
+		if _, err := s.promptRunService.RunSystem(id); err != nil {
+			logs.Error(fmt.Errorf("auto first-run failed for prompt %d: %w", id, err))
+		}
+	}()
+
+	created, err := s.promptRepository.GetById(id)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	return &PromptResponse{Status: true, Desc: "Prompt created successfully", Data: toPromptData(*created)}, nil
 }
 
 func (s promptService) GetById(id, userId int) (*PromptResponse, error) {
@@ -94,8 +150,71 @@ func (s promptService) Update(id, userId int, req UpdatePromptRequest) (*SimpleR
 	}
 	defer tx.Rollback()
 
-	p := repository.Prompt{Id: id, CategoryId: req.CategoryId, Title: req.Title, Content: req.Content}
-	if err = s.promptRepository.Update(tx, p); err != nil {
+	if err = s.promptRepository.Update(tx, id, req.TagId, req.Title, req.Content); err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	if req.CountryCodes != nil {
+		if err = s.promptRepository.SetCountries(tx, id, req.CountryCodes); err != nil {
+			logs.Error(err)
+			return nil, errs.NewUnexpectedError()
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	return &SimpleResponse{Status: true, Desc: "Prompt updated successfully"}, nil
+}
+
+// SetActive is gated to Specialist-and-above — Customers are view-only and
+// shouldn't be able to pause/resume a prompt even via a direct API call.
+func (s promptService) SetActive(id, userId int, active bool) (*SimpleResponse, error) {
+	p, err := s.promptRepository.GetById(id)
+	if err != nil {
+		return nil, errs.NewNotFoundError("prompt not found")
+	}
+
+	role, err := permission.EffectiveRole(s.db, p.CompanyId, userId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	if !permission.Allowed(role, permission.Admin, permission.TeamLead, permission.Specialist) {
+		return nil, errs.NewForbiddenError("access denied")
+	}
+
+	// Reactivating counts against the limit too — otherwise the cap could be
+	// bypassed by creating prompts, pausing some, then resuming them all.
+	if active && !p.Active {
+		company, err := s.companyRepository.GetById(p.CompanyId)
+		if err != nil {
+			return nil, errs.NewNotFoundError("company not found")
+		}
+		activeCount, err := s.promptRepository.CountActive(p.CompanyId)
+		if err != nil {
+			logs.Error(err)
+			return nil, errs.NewUnexpectedError()
+		}
+		if activeCount >= company.PromptLimit {
+			return nil, errs.NewBadRequestError(fmt.Sprintf(
+				"you've reached your active prompt limit of %d — deactivate another prompt or raise the limit in Settings",
+				company.PromptLimit,
+			))
+		}
+	}
+
+	tx, err := s.promptRepository.NewTransaction()
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	defer tx.Rollback()
+
+	if err = s.promptRepository.SetActive(tx, id, active); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
 	}

@@ -26,8 +26,8 @@ func toCitationData(c repository.Citation, competitors []repository.CitationComp
 	}
 
 	return CitationData{
-		Id: c.Id, PromptId: c.PromptId, BrandId: c.BrandId, Ranking: c.Ranking, Content: c.Content,
-		Url: c.Url, AiPlatform: c.AiPlatform, DateDiscovered: c.DateDiscovered, LastChecked: c.LastChecked,
+		Id: c.Id, PromptId: c.PromptId, BrandId: c.BrandId, BrandName: c.BrandName, Ranking: c.Ranking, Content: c.Content,
+		Url: c.Url, AiPlatform: c.AiPlatform, SourceType: c.SourceType, TargetCountry: c.TargetCountry, DateDiscovered: c.DateDiscovered, LastChecked: c.LastChecked,
 		Sentiment: c.Sentiment, BrandPositioning: c.BrandPositioning, CitationFrequency: c.CitationFrequency,
 		Snippet: c.Snippet, IsCompetitor: c.IsCompetitor, Notes: c.Notes, IsArchived: c.IsArchived,
 		Competitors: competitorList, RankingHistory: historyList, CreatedAt: c.CreatedAt,
@@ -42,8 +42,8 @@ func (s citationService) verifyOwnership(id, userId int) error {
 	return nil
 }
 
-func (s citationService) GetAll(promptId int) (*CitationListResponse, error) {
-	citations, err := s.citationRepository.GetAll(promptId)
+func (s citationService) GetAll(promptId int, from, to string) (*CitationListResponse, error) {
+	citations, err := s.citationRepository.GetAll(promptId, from, to)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()

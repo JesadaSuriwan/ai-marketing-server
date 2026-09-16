@@ -161,29 +161,42 @@ func (r dashboardRepositoryDB) GetCompanyMetrics(companyId int) (*CompanyMetrics
 	return &m, nil
 }
 
-func (r dashboardRepositoryDB) GetPromptRankings(promptId, companyId int) ([]PromptRanking, error) {
+func (r dashboardRepositoryDB) GetPromptRankings(promptId, companyId int, from, to string) ([]PromptRanking, error) {
 	list := []PromptRanking{}
+	// One row per real cited URL exists per brand (chatgpt/gemini/perplexity
+	// each contribute their own), plus rows with no brand match at all
+	// (brand_id IS NULL) — the INNER JOIN to brands drops those, and the
+	// GROUP BY collapses the rest to one ranking row per brand, picking the
+	// best-ranked citation's sentiment/positioning as representative and
+	// summing citation_frequency across all of that brand's citations.
 	query := `
+		WITH brand_citations AS (
+			SELECT c.ranking, b.name AS brand, c.sentiment, c.brand_positioning, c.is_competitor, c.citation_frequency
+			FROM citations c
+			JOIN brands b ON c.brand_id = b.id
+			JOIN prompts p ON c.prompt_id = p.id
+			WHERE c.prompt_id = $1
+			  AND p.company_id = $2
+			  AND ($3 = '' OR c.last_checked >= $3::date)
+			  AND ($4 = '' OR c.last_checked <= $4::date)
+		)
 		SELECT
-			c.ranking,
-			COALESCE(b.name, c.brand_positioning, 'Unknown') as brand,
-			COALESCE(c.sentiment, '') as sentiment,
-			COALESCE(c.brand_positioning, '') as brand_positioning,
-			c.is_competitor,
-			c.citation_frequency as visibility
-		FROM citations c
-		LEFT JOIN brands b ON c.brand_id = b.id
-		JOIN prompts p ON c.prompt_id = p.id
-		WHERE c.prompt_id = $1
-		  AND p.company_id = $2
-		ORDER BY c.ranking ASC
+			MIN(ranking) AS ranking,
+			brand,
+			(ARRAY_AGG(sentiment ORDER BY ranking ASC))[1] AS sentiment,
+			(ARRAY_AGG(brand_positioning ORDER BY ranking ASC))[1] AS brand_positioning,
+			BOOL_OR(is_competitor) AS is_competitor,
+			SUM(citation_frequency)::INT AS visibility
+		FROM brand_citations
+		GROUP BY brand
+		ORDER BY MIN(ranking) ASC
 		LIMIT 10
 	`
-	err := r.db.Select(&list, query, promptId, companyId)
+	err := r.db.Select(&list, query, promptId, companyId, from, to)
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetPromptsOverview(companyId int) ([]PromptOverview, error) {
+func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to string) ([]PromptOverview, error) {
 	list := []PromptOverview{}
 	query := `
 		WITH own_brand_id AS (
@@ -192,7 +205,7 @@ func (r dashboardRepositoryDB) GetPromptsOverview(companyId int) ([]PromptOvervi
 		SELECT
 			p.id AS prompt_id,
 			p.title,
-			COALESCE(pc.name, '') AS category,
+			COALESCE(pc.name, '') AS tag,
 			COUNT(DISTINCT CASE WHEN c.brand_id = ob.id AND ob.id != 0 THEN c.id END)::INT AS brand_mentions,
 			COUNT(DISTINCT c.id)::INT AS total_brand_mentions,
 			COALESCE(SUM(CASE
@@ -214,18 +227,28 @@ func (r dashboardRepositoryDB) GetPromptsOverview(companyId int) ([]PromptOvervi
 				 WHERE c2.prompt_id = p.id
 				   AND b2.is_own = FALSE
 				   AND b2.company_id = $1
+				   AND ($2 = '' OR c2.last_checked >= $2::date)
+				   AND ($3 = '' OR c2.last_checked <= $3::date)
 				),
 				''
-			) AS competitors
+			) AS competitors,
+			COALESCE(
+				(SELECT STRING_AGG(pco.country_code, ',' ORDER BY pco.country_code)
+				 FROM prompt_countries pco WHERE pco.prompt_id = p.id),
+				''
+			) AS countries,
+			p.active
 		FROM prompts p
 		CROSS JOIN own_brand_id ob
 		LEFT JOIN citations c ON c.prompt_id = p.id
-		LEFT JOIN prompt_categories pc ON pc.id = p.category_id
+			AND ($2 = '' OR c.last_checked >= $2::date)
+			AND ($3 = '' OR c.last_checked <= $3::date)
+		LEFT JOIN prompt_categories pc ON pc.id = p.tag_id
 		WHERE p.company_id = $1
-		GROUP BY p.id, p.title, ob.id, pc.name
+		GROUP BY p.id, p.title, ob.id, pc.name, p.active
 		ORDER BY brand_mentions DESC, p.id ASC
 	`
-	err := r.db.Select(&list, query, companyId)
+	err := r.db.Select(&list, query, companyId, from, to)
 	return list, err
 }
 
@@ -256,6 +279,7 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int) ([]BrandRankingRow
 		prompt_count AS (SELECT NULLIF(COUNT(*), 0) AS total FROM prompts WHERE company_id = $1),
 		total_mentions AS (SELECT NULLIF(SUM(mentions), 0) AS total FROM brand_stats)
 		SELECT
+			bs.id,
 			ROW_NUMBER() OVER (ORDER BY bs.mentions DESC)::INT AS rank,
 			bs.name,
 			bs.is_own,
@@ -323,7 +347,7 @@ func (r dashboardRepositoryDB) GetCitationURLs(companyId int) ([]CitationURLDeta
 		SELECT
 			c.url,
 			COALESCE(MIN(c.content), '') AS title,
-			BOOL_OR(c.brand_id = ob.id AND ob.id != 0) AS brand_mentioned,
+			COALESCE(BOOL_OR(c.brand_id = ob.id AND ob.id != 0), FALSE) AS brand_mentioned,
 			COALESCE(
 				STRING_AGG(DISTINCT CASE WHEN b.id IS NOT NULL AND b.is_own = FALSE THEN b.name END, ','),
 				''
@@ -334,11 +358,16 @@ func (r dashboardRepositoryDB) GetCitationURLs(companyId int) ([]CitationURLDeta
 				WHEN BOOL_OR(b.id IS NOT NULL AND b.is_own = FALSE) THEN 'Competitor'
 				ELSE 'Others'
 			END AS domain_category,
-			COUNT(DISTINCT c.prompt_id)::INT AS cited
+			COALESCE(MIN(c.source_type), 'other') AS source_type,
+			COUNT(DISTINCT c.prompt_id)::INT AS cited,
+			COALESCE(STRING_AGG(DISTINCT c.ai_platform, ','), '') AS engines,
+			COALESCE(STRING_AGG(DISTINCT pc.name, ','), '') AS tags,
+			COALESCE(MAX(c.target_country), '') AS target_country
 		FROM citations c
 		CROSS JOIN own_brand_id ob
 		JOIN prompts p ON p.id = c.prompt_id
 		LEFT JOIN brands b ON b.id = c.brand_id AND b.company_id = $1
+		LEFT JOIN prompt_categories pc ON pc.id = p.tag_id
 		WHERE p.company_id = $1
 		  AND c.url IS NOT NULL
 		  AND c.url != ''
@@ -350,20 +379,89 @@ func (r dashboardRepositoryDB) GetCitationURLs(companyId int) ([]CitationURLDeta
 	return list, err
 }
 
+func (r dashboardRepositoryDB) GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo string) ([]CitationURLChange, error) {
+	list := []CitationURLChange{}
+	query := `
+		WITH current_period AS (
+			SELECT url, SUM(citation_count) AS cnt
+			FROM citation_url_daily_stats
+			WHERE company_id = $1 AND stat_date >= $2 AND stat_date <= $3
+			GROUP BY url
+		),
+		previous_period AS (
+			SELECT url, SUM(citation_count) AS cnt
+			FROM citation_url_daily_stats
+			WHERE company_id = $1 AND stat_date >= $4 AND stat_date <= $5
+			GROUP BY url
+		),
+		combined AS (
+			SELECT COALESCE(c.url, p.url) AS url,
+				COALESCE(c.cnt, 0)::INT AS current_count,
+				COALESCE(p.cnt, 0)::INT AS previous_count
+			FROM current_period c
+			FULL OUTER JOIN previous_period p ON c.url = p.url
+		)
+		SELECT
+			combined.url,
+			COALESCE(MIN(cit.content), '') AS title,
+			combined.current_count,
+			combined.previous_count
+		FROM combined
+		LEFT JOIN citations cit ON cit.url = combined.url
+		LEFT JOIN prompts pr ON pr.id = cit.prompt_id AND pr.company_id = $1
+		GROUP BY combined.url, combined.current_count, combined.previous_count
+	`
+	err := r.db.Select(&list, query, companyId, currentFrom, currentTo, previousFrom, previousTo)
+	return list, err
+}
+
+func (r dashboardRepositoryDB) GetBrandCitations(companyId, brandId int) ([]BrandCitation, error) {
+	list := []BrandCitation{}
+	query := `
+		SELECT
+			c.url,
+			COALESCE(MIN(c.content), '') AS title,
+			REGEXP_REPLACE(c.url, '^(?:https?://)?(?:www\.)?([^/?#]*).*$', '\1') AS domain,
+			COALESCE(STRING_AGG(DISTINCT c.ai_platform, ','), '') AS engines,
+			COUNT(DISTINCT c.prompt_id)::INT AS cited,
+			COALESCE(MAX(c.last_checked)::TEXT, '') AS last_seen
+		FROM citations c
+		JOIN prompts p ON p.id = c.prompt_id
+		WHERE p.company_id = $1 AND c.brand_id = $2 AND c.url IS NOT NULL AND c.url != ''
+		GROUP BY c.url
+		ORDER BY cited DESC
+		LIMIT 200
+	`
+	err := r.db.Select(&list, query, companyId, brandId)
+	return list, err
+}
+
 func (r dashboardRepositoryDB) GetCitationURLPrompts(url string, companyId int) ([]CitationURLPrompt, error) {
 	list := []CitationURLPrompt{}
+	// One citation row per engine can exist for the same (prompt, url) — the
+	// GROUP BY collapses those to one row per prompt, same
+	// pick-the-top-ranked-row-as-representative idiom GetPromptRankings uses
+	// for sentiment, plus a comma-joined engine list and a summed
+	// citation_frequency across all of that prompt's engines for this URL.
 	query := `
-		SELECT DISTINCT p.id AS prompt_id, p.title
+		SELECT
+			p.id AS prompt_id,
+			p.title,
+			STRING_AGG(DISTINCT c.ai_platform, ',') AS engines,
+			(ARRAY_AGG(c.sentiment ORDER BY c.ranking ASC))[1] AS sentiment,
+			MIN(c.ranking) AS ranking,
+			SUM(c.citation_frequency)::INT AS citation_frequency
 		FROM citations c
 		JOIN prompts p ON p.id = c.prompt_id
 		WHERE c.url = $1 AND p.company_id = $2
-		ORDER BY p.title
+		GROUP BY p.id, p.title
+		ORDER BY MIN(c.ranking) ASC
 	`
 	err := r.db.Select(&list, query, url, companyId)
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetPromptDomains(promptId, companyId int) ([]PromptDomain, error) {
+func (r dashboardRepositoryDB) GetPromptDomains(promptId, companyId int, from, to string) ([]PromptDomain, error) {
 	list := []PromptDomain{}
 	query := `
 		SELECT
@@ -371,17 +469,20 @@ func (r dashboardRepositoryDB) GetPromptDomains(promptId, companyId int) ([]Prom
 			COUNT(*) as mention_count,
 			COALESCE(AVG(citation_frequency), 0) as avg_citation,
 			BOOL_OR(is_competitor) as is_competitor,
-			COALESCE(MIN(snippet), MIN(content), '') as snippet
+			COALESCE(MIN(snippet), MIN(c.content), '') as snippet,
+			COALESCE(MIN(c.source_type), 'other') as source_type
 		FROM citations c
 		JOIN prompts p ON c.prompt_id = p.id
 		WHERE c.prompt_id = $1
 		  AND p.company_id = $2
 		  AND c.url IS NOT NULL
 		  AND c.url != ''
+		  AND ($3 = '' OR c.last_checked >= $3::date)
+		  AND ($4 = '' OR c.last_checked <= $4::date)
 		GROUP BY REGEXP_REPLACE(url, '^(?:https?://)?([^/?#]*).*$', '\1')
 		ORDER BY mention_count DESC
 		LIMIT 10
 	`
-	err := r.db.Select(&list, query, promptId, companyId)
+	err := r.db.Select(&list, query, promptId, companyId, from, to)
 	return list, err
 }

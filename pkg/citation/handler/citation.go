@@ -25,7 +25,9 @@ func (h citationHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	result, err := h.citationService.GetAll(promptId)
+	from := c.Query("from")
+	to := c.Query("to")
+	result, err := h.citationService.GetAll(promptId, from, to)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

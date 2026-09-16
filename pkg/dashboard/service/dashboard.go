@@ -103,12 +103,13 @@ type PromptDomainData struct {
 	AvgCitation  float64 `json:"avg_citation"`
 	IsCompetitor bool    `json:"is_competitor"`
 	Snippet      string  `json:"snippet"`
+	SourceType   string  `json:"source_type"`
 }
 
 type PromptRankingsResponse struct {
-	Status bool                 `json:"status"`
-	Desc   string               `json:"desc"`
-	Data   []PromptRankingData  `json:"data"`
+	Status bool                `json:"status"`
+	Desc   string              `json:"desc"`
+	Data   []PromptRankingData `json:"data"`
 }
 
 type PromptDomainsResponse struct {
@@ -120,7 +121,7 @@ type PromptDomainsResponse struct {
 type PromptOverviewData struct {
 	PromptId             int    `json:"prompt_id"`
 	Title                string `json:"title"`
-	Category             string `json:"category"`
+	Tag                  string `json:"tag"`
 	BrandCoverage        int    `json:"brand_coverage"`
 	BrandSentiment       int    `json:"brand_sentiment"`
 	BrandMentions        int    `json:"brand_mentions"`
@@ -128,15 +129,18 @@ type PromptOverviewData struct {
 	DomainCitations      int    `json:"domain_citations"`
 	TotalDomainCitations int    `json:"total_domain_citations"`
 	Competitors          string `json:"competitors"`
+	Countries            string `json:"countries"`
+	Active               bool   `json:"active"`
 }
 
 type PromptsOverviewResponse struct {
-	Status bool                  `json:"status"`
-	Desc   string                `json:"desc"`
-	Data   []PromptOverviewData  `json:"data"`
+	Status bool                 `json:"status"`
+	Desc   string               `json:"desc"`
+	Data   []PromptOverviewData `json:"data"`
 }
 
 type BrandRankingData struct {
+	Id             int     `json:"id"`
 	Rank           int     `json:"rank"`
 	Name           string  `json:"name"`
 	IsOwn          bool    `json:"is_own"`
@@ -147,10 +151,25 @@ type BrandRankingData struct {
 	AvgPosition    float64 `json:"avg_position"`
 }
 
-type BrandRankingResponse struct {
+type BrandCitationData struct {
+	Url      string `json:"url"`
+	Title    string `json:"title"`
+	Domain   string `json:"domain"`
+	Engines  string `json:"engines"`
+	Cited    int    `json:"cited"`
+	LastSeen string `json:"last_seen"`
+}
+
+type BrandCitationsResponse struct {
 	Status bool                `json:"status"`
 	Desc   string              `json:"desc"`
-	Data   []BrandRankingData  `json:"data"`
+	Data   []BrandCitationData `json:"data"`
+}
+
+type BrandRankingResponse struct {
+	Status bool               `json:"status"`
+	Desc   string             `json:"desc"`
+	Data   []BrandRankingData `json:"data"`
 }
 
 type TopPromptByBrandData struct {
@@ -185,7 +204,11 @@ type CitationURLDetailData struct {
 	Competitors    string `json:"competitors"`
 	Domain         string `json:"domain"`
 	DomainCategory string `json:"domain_category"`
+	SourceType     string `json:"source_type"`
 	Cited          int    `json:"cited"`
+	Engines        string `json:"engines"`
+	Tags           string `json:"tags"`
+	TargetCountry  string `json:"target_country"`
 }
 
 type CitationURLsResponse struct {
@@ -194,9 +217,34 @@ type CitationURLsResponse struct {
 	Data   []CitationURLDetailData `json:"data"`
 }
 
+type CitationChangeData struct {
+	Url           string  `json:"url"`
+	Title         string  `json:"title"`
+	CurrentCount  int     `json:"current_count"`
+	PreviousCount int     `json:"previous_count"`
+	ChangePct     float64 `json:"change_pct"`
+	IsNew         bool    `json:"is_new"`
+	IsDropped     bool    `json:"is_dropped"`
+}
+
+type CitationWinnersLosersData struct {
+	Winners []CitationChangeData `json:"winners"`
+	Losers  []CitationChangeData `json:"losers"`
+}
+
+type CitationWinnersLosersResponse struct {
+	Status bool                      `json:"status"`
+	Desc   string                    `json:"desc"`
+	Data   CitationWinnersLosersData `json:"data"`
+}
+
 type CitationURLPromptData struct {
-	PromptId int    `json:"prompt_id"`
-	Title    string `json:"title"`
+	PromptId          int    `json:"prompt_id"`
+	Title             string `json:"title"`
+	Engines           string `json:"engines"`
+	Sentiment         string `json:"sentiment"`
+	Ranking           int    `json:"ranking"`
+	CitationFrequency int    `json:"citation_frequency"`
 }
 
 type CitationURLPromptsResponse struct {
@@ -214,12 +262,14 @@ type DashboardService interface {
 	GetPlatformBreakdown(companyId int) (*PlatformBreakdownResponse, error)
 	GetPromptTrend(promptId, companyId int, interval, from, to string) (*VisibilityTrendResponse, error)
 	GetCompanyMetrics(companyId int) (*CompanyMetricsResponse, error)
-	GetPromptRankings(promptId, companyId int) (*PromptRankingsResponse, error)
-	GetPromptDomains(promptId, companyId int) (*PromptDomainsResponse, error)
+	GetPromptRankings(promptId, companyId int, from, to string) (*PromptRankingsResponse, error)
+	GetPromptDomains(promptId, companyId int, from, to string) (*PromptDomainsResponse, error)
 	GetBrandRanking(companyId int) (*BrandRankingResponse, error)
 	GetTopPromptsByBrand(companyId int) (*TopPromptsByBrandResponse, error)
 	GetTopCitationURLs(companyId int) (*TopCitationURLsResponse, error)
-	GetPromptsOverview(companyId int) (*PromptsOverviewResponse, error)
+	GetPromptsOverview(companyId int, from, to string) (*PromptsOverviewResponse, error)
 	GetCitationURLs(companyId int) (*CitationURLsResponse, error)
 	GetCitationURLPrompts(url string, companyId int) (*CitationURLPromptsResponse, error)
+	GetCitationWinnersLosers(companyId int) (*CitationWinnersLosersResponse, error)
+	GetBrandCitations(companyId, brandId int) (*BrandCitationsResponse, error)
 }

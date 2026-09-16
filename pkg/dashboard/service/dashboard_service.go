@@ -1,6 +1,9 @@
 package service
 
 import (
+	"sort"
+	"time"
+
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/pkg/dashboard/repository"
@@ -140,8 +143,8 @@ func (s dashboardService) GetCompanyMetrics(companyId int) (*CompanyMetricsRespo
 	}, nil
 }
 
-func (s dashboardService) GetPromptRankings(promptId, companyId int) (*PromptRankingsResponse, error) {
-	rows, err := s.dashboardRepository.GetPromptRankings(promptId, companyId)
+func (s dashboardService) GetPromptRankings(promptId, companyId int, from, to string) (*PromptRankingsResponse, error) {
+	rows, err := s.dashboardRepository.GetPromptRankings(promptId, companyId, from, to)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -156,8 +159,8 @@ func (s dashboardService) GetPromptRankings(promptId, companyId int) (*PromptRan
 	return &PromptRankingsResponse{Status: true, Desc: "Get prompt rankings successful", Data: data}, nil
 }
 
-func (s dashboardService) GetPromptsOverview(companyId int) (*PromptsOverviewResponse, error) {
-	rows, err := s.dashboardRepository.GetPromptsOverview(companyId)
+func (s dashboardService) GetPromptsOverview(companyId int, from, to string) (*PromptsOverviewResponse, error) {
+	rows, err := s.dashboardRepository.GetPromptsOverview(companyId, from, to)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -165,11 +168,11 @@ func (s dashboardService) GetPromptsOverview(companyId int) (*PromptsOverviewRes
 	data := []PromptOverviewData{}
 	for _, r := range rows {
 		data = append(data, PromptOverviewData{
-			PromptId: r.PromptId, Title: r.Title, Category: r.Category,
+			PromptId: r.PromptId, Title: r.Title, Tag: r.Tag,
 			BrandCoverage: r.BrandCoverage, BrandSentiment: r.BrandSentiment,
 			BrandMentions: r.BrandMentions, TotalBrandMentions: r.TotalBrandMentions,
 			DomainCitations: r.DomainCitations, TotalDomainCitations: r.TotalDomainCitations,
-			Competitors: r.Competitors,
+			Competitors: r.Competitors, Countries: r.Countries, Active: r.Active,
 		})
 	}
 	return &PromptsOverviewResponse{Status: true, Desc: "Get prompts overview successful", Data: data}, nil
@@ -184,7 +187,7 @@ func (s dashboardService) GetBrandRanking(companyId int) (*BrandRankingResponse,
 	data := []BrandRankingData{}
 	for _, r := range rows {
 		data = append(data, BrandRankingData{
-			Rank: r.Rank, Name: r.Name, IsOwn: r.IsOwn,
+			Id: r.Id, Rank: r.Rank, Name: r.Name, IsOwn: r.IsOwn,
 			SentimentScore: r.SentimentScore, Mentions: r.Mentions,
 			BrandCoverage: r.BrandCoverage, ShareOfVoice: r.ShareOfVoice, AvgPosition: r.AvgPosition,
 		})
@@ -229,7 +232,8 @@ func (s dashboardService) GetCitationURLs(companyId int) (*CitationURLsResponse,
 		data = append(data, CitationURLDetailData{
 			Url: r.Url, Title: r.Title, BrandMentioned: r.BrandMentioned,
 			Competitors: r.Competitors, Domain: r.Domain,
-			DomainCategory: r.DomainCategory, Cited: r.Cited,
+			DomainCategory: r.DomainCategory, SourceType: r.SourceType, Cited: r.Cited,
+			Engines: r.Engines, Tags: r.Tags, TargetCountry: r.TargetCountry,
 		})
 	}
 	return &CitationURLsResponse{Status: true, Desc: "Get citation URLs successful", Data: data}, nil
@@ -243,13 +247,16 @@ func (s dashboardService) GetCitationURLPrompts(url string, companyId int) (*Cit
 	}
 	data := []CitationURLPromptData{}
 	for _, r := range rows {
-		data = append(data, CitationURLPromptData{PromptId: r.PromptId, Title: r.Title})
+		data = append(data, CitationURLPromptData{
+			PromptId: r.PromptId, Title: r.Title, Engines: r.Engines,
+			Sentiment: r.Sentiment, Ranking: r.Ranking, CitationFrequency: r.CitationFrequency,
+		})
 	}
 	return &CitationURLPromptsResponse{Status: true, Desc: "Get citation URL prompts successful", Data: data}, nil
 }
 
-func (s dashboardService) GetPromptDomains(promptId, companyId int) (*PromptDomainsResponse, error) {
-	rows, err := s.dashboardRepository.GetPromptDomains(promptId, companyId)
+func (s dashboardService) GetPromptDomains(promptId, companyId int, from, to string) (*PromptDomainsResponse, error) {
+	rows, err := s.dashboardRepository.GetPromptDomains(promptId, companyId, from, to)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -258,8 +265,111 @@ func (s dashboardService) GetPromptDomains(promptId, companyId int) (*PromptDoma
 	for _, d := range rows {
 		data = append(data, PromptDomainData{
 			Domain: d.Domain, MentionCount: d.MentionCount, AvgCitation: d.AvgCitation,
-			IsCompetitor: d.IsCompetitor, Snippet: d.Snippet,
+			IsCompetitor: d.IsCompetitor, Snippet: d.Snippet, SourceType: d.SourceType,
 		})
 	}
 	return &PromptDomainsResponse{Status: true, Desc: "Get prompt domains successful", Data: data}, nil
+}
+
+// GetCitationWinnersLosers compares each cited URL's citation count over the
+// last 7 days against the 7 days before that, using real daily snapshots
+// (citation_url_daily_stats) rather than the citations table's running
+// lifetime total, which has no period boundaries to diff against.
+func (s dashboardService) GetCitationWinnersLosers(companyId int) (*CitationWinnersLosersResponse, error) {
+	now := time.Now()
+	currentTo := now.Format("2006-01-02")
+	currentFrom := now.AddDate(0, 0, -6).Format("2006-01-02")
+	previousTo := now.AddDate(0, 0, -7).Format("2006-01-02")
+	previousFrom := now.AddDate(0, 0, -13).Format("2006-01-02")
+
+	rows, err := s.dashboardRepository.GetCitationURLChanges(companyId, currentFrom, currentTo, previousFrom, previousTo)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	winners := []CitationChangeData{}
+	losers := []CitationChangeData{}
+
+	for _, r := range rows {
+		if r.CurrentCount == 0 && r.PreviousCount == 0 {
+			continue
+		}
+
+		d := CitationChangeData{
+			Url: r.Url, Title: r.Title,
+			CurrentCount: r.CurrentCount, PreviousCount: r.PreviousCount,
+		}
+
+		switch {
+		case r.PreviousCount == 0 && r.CurrentCount > 0:
+			d.IsNew = true
+			d.ChangePct = 100
+		case r.PreviousCount > 0 && r.CurrentCount == 0:
+			d.IsDropped = true
+			d.ChangePct = -100
+		case r.PreviousCount == r.CurrentCount:
+			continue // no real change — not a winner or loser
+		default:
+			d.ChangePct = (float64(r.CurrentCount) - float64(r.PreviousCount)) / float64(r.PreviousCount) * 100
+		}
+
+		if d.ChangePct > 0 || d.IsNew {
+			winners = append(winners, d)
+		} else if d.ChangePct < 0 || d.IsDropped {
+			losers = append(losers, d)
+		}
+	}
+
+	sort.Slice(winners, func(i, j int) bool {
+		return winnerSortKey(winners[i]) > winnerSortKey(winners[j])
+	})
+	sort.Slice(losers, func(i, j int) bool {
+		return loserSortKey(losers[i]) < loserSortKey(losers[j])
+	})
+
+	if len(winners) > 3 {
+		winners = winners[:3]
+	}
+	if len(losers) > 3 {
+		losers = losers[:3]
+	}
+
+	return &CitationWinnersLosersResponse{
+		Status: true, Desc: "Get citation winners/losers successful",
+		Data: CitationWinnersLosersData{Winners: winners, Losers: losers},
+	}, nil
+}
+
+// winnerSortKey ranks brand-new citations above every numeric percentage —
+// there is no finite "% increase" from zero, so they're ordered by raw
+// volume instead, ahead of any bounded percentage gain.
+func winnerSortKey(d CitationChangeData) float64 {
+	if d.IsNew {
+		return 1e9 + float64(d.CurrentCount)
+	}
+	return d.ChangePct
+}
+
+func loserSortKey(d CitationChangeData) float64 {
+	if d.IsDropped {
+		return -1e9 - float64(d.PreviousCount)
+	}
+	return d.ChangePct
+}
+
+func (s dashboardService) GetBrandCitations(companyId, brandId int) (*BrandCitationsResponse, error) {
+	rows, err := s.dashboardRepository.GetBrandCitations(companyId, brandId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	data := []BrandCitationData{}
+	for _, r := range rows {
+		data = append(data, BrandCitationData{
+			Url: r.Url, Title: r.Title, Domain: r.Domain,
+			Engines: r.Engines, Cited: r.Cited, LastSeen: r.LastSeen,
+		})
+	}
+	return &BrandCitationsResponse{Status: true, Desc: "Get brand citations successful", Data: data}, nil
 }

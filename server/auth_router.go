@@ -24,4 +24,5 @@ func (s *ginServer) initAuthRouter() {
 	protected.Use(authMiddleware.AuthRequired)
 	protected.GET("/logout", authHandler.Logout)
 	protected.GET("/me", authHandler.Me)
+	protected.PUT("/change-password", authHandler.ChangePassword)
 }

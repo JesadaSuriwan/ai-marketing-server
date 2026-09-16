@@ -1,0 +1,35 @@
+server:
+  port: 8090
+  environment: dev
+  bodyLimit: 10
+  # 3 sequential AI engines (chatgpt/gemini/perplexity) + citation extraction
+  # can legitimately take 60-150s+ per prompt run — 30s was fine when there
+  # was only one engine, but now causes every run to falsely time out
+  # (gin-contrib/timeout responds to the client but doesn't actually stop the
+  # handler goroutine, so a "failed" run keeps consuming real API credits in
+  # the background while the client, seeing a failure, retries and stacks
+  # another full run on top).
+  timeout: 300
+  client_url: "http://localhost:3001,http://localhost:8080,http://localhost:5173"
+  server_domain: "localhost"
+
+database:
+  driver: postgres
+  host: localhost
+  port: 5432
+  user: postgres
+  # Leave blank here and set via the DATABASE_PASSWORD env var instead —
+  # see config/config.go's viper.BindEnv calls for every secret this file
+  # intentionally omits.
+  password: ""
+  dbname: ai_marketing
+  sslmode: disable
+  schema: public
+
+env:
+  # Set via ENV_SECRETKEY env var, not here.
+  secretkey: ""
+
+scheduler:
+  enabled: true
+  cron_expression: "0 3 * * *"

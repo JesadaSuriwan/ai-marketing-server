@@ -13,7 +13,7 @@ type Subdomain struct {
 type SubdomainRepository interface {
 	NewTransaction() (*sqlx.Tx, error)
 	GetAll(companyId int) ([]Subdomain, error)
+	GetById(id int) (*Subdomain, error)
 	Create(tx *sqlx.Tx, s Subdomain) (int, error)
 	Delete(tx *sqlx.Tx, id int) error
-	BelongsToUser(id, userId int) (bool, error)
 }

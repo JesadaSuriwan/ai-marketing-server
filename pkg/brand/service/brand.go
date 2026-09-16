@@ -14,7 +14,7 @@ type BrandData struct {
 }
 
 type CreateBrandRequest struct {
-	CompanyId   int     `json:"company_id" binding:"required"`
+	CompanyId   int     `json:"company_id,string" binding:"required"`
 	Name        string  `json:"name" binding:"required"`
 	Domain      string  `json:"domain" binding:"required"`
 	Industry    *string `json:"industry"`
