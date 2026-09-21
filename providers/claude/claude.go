@@ -14,6 +14,7 @@ import (
 
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/providers/citation"
+	"github.com/ai-marketing/ai-marketing-server/providers/location"
 	"github.com/ai-marketing/ai-marketing-server/providers/usage"
 )
 
@@ -35,23 +36,28 @@ func NewClient(apiKey, model string) *Client {
 // forced (tool_choice "any" — Claude's equivalent of OpenAI's
 // tool_choice:"required") and returns the search-grounded response text, the
 // model used, and the real source URLs it actually cited.
-func (c *Client) Complete(prompt string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
+func (c *Client) Complete(prompt, country string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
 	if c.apiKey == "" {
 		return "", "", nil, usage.Usage{}, errors.New("claude api key not configured")
 	}
 
-	logs.Info(fmt.Sprintf("claude request: model=%s input=%q", c.model, prompt))
+	logs.Info(fmt.Sprintf("claude request: model=%s country=%s input=%q", c.model, country, prompt))
+
+	// The web_search tool's UserLocation rejects some country codes ("Country
+	// code TH is not supported", confirmed against the live API), so the
+	// country goes in as a system-prompt hint instead.
+	var system []sdk.TextBlockParam
+	if hint := location.Hint(country); hint != "" {
+		system = []sdk.TextBlockParam{{Text: hint}}
+	}
 
 	msg, err := c.client.Messages.New(context.Background(), sdk.MessageNewParams{
 		Model:     c.model,
 		MaxTokens: 2048,
+		System:    system,
 		Messages: []sdk.MessageParam{
 			sdk.NewUserMessage(sdk.NewTextBlock(prompt)),
 		},
-		// No UserLocation/country bias here — unlike OpenAI/Gemini, Claude's
-		// web_search tool rejects "TH" ("Country code TH is not supported"),
-		// confirmed against the live API. Search runs ungrounded-by-region
-		// until Anthropic adds support for it.
 		Tools: []sdk.ToolUnionParam{
 			{OfWebSearchTool20260318: &sdk.WebSearchTool20260318Param{}},
 		},

@@ -17,8 +17,9 @@ func (s *ginServer) initUsageRouter() {
 	s.usageService = usageService
 
 	authMiddleware := middlewares.NewAuthMiddleware()
+	companyMiddleware := middlewares.NewCompanyMiddleware(s.db)
 
 	router := s.app.Group("/usage")
 	router.Use(authMiddleware.AuthRequired)
-	router.GET("/summary", usageHandler.GetSummary)
+	router.GET("/summary", companyMiddleware.OwnerByQuery, usageHandler.GetSummary)
 }

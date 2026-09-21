@@ -12,8 +12,7 @@ type UsageLog struct {
 	CreatedAt    string  `db:"created_at"`
 }
 
-// EngineBreakdown is one (engine, purpose) bucket, summed across every
-// company the requesting user owns or is an accepted member of.
+// EngineBreakdown is one (engine, purpose) bucket for a single company.
 type EngineBreakdown struct {
 	Engine       string  `db:"engine"`
 	Purpose      string  `db:"purpose"`
@@ -26,5 +25,5 @@ type EngineBreakdown struct {
 type UsageRepository interface {
 	Log(l UsageLog) error
 	// from/to are optional "YYYY-MM-DD" bounds on created_at; empty means unbounded.
-	GetBreakdownForUser(userId int, from, to string) ([]EngineBreakdown, error)
+	GetBreakdownForCompany(companyId int, from, to string) ([]EngineBreakdown, error)
 }

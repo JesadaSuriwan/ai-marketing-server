@@ -151,6 +151,13 @@ func (s promptRunService) RunSystem(promptId int) (*PromptRunListResponse, error
 // run fans out the prompt across every configured engine (e.g. ChatGPT and
 // Gemini run one after another). Each engine is best-effort: one failing
 // doesn't stop the others — the result includes whichever runs succeeded.
+// promptCountry is the prompt's single country code. Prompts saved before
+// the one-country rule may still list several; the first (alphabetical) wins.
+func promptCountry(countries string) string {
+	code, _, _ := strings.Cut(countries, ",")
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
 func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
 	prompt, err := s.promptRepository.GetById(promptId)
 	if err != nil {
@@ -184,7 +191,7 @@ func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
 
 	data := []PromptRunData{}
 	for _, eng := range engines {
-		response, model, citations, tokenUsage, err := eng.Provider.Complete(prompt.Content)
+		response, model, citations, tokenUsage, err := eng.Provider.Complete(prompt.Content, promptCountry(prompt.Countries))
 		if err != nil {
 			logs.Error(fmt.Errorf("%s run failed for prompt %d: %w", eng.Platform, promptId, err))
 			continue

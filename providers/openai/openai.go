@@ -91,20 +91,21 @@ type responsesResponse struct {
 // Complete sends prompt to OpenAI's Responses API with the web_search tool
 // enabled and returns the search-grounded response text, the model used,
 // the real source URLs the model actually cited, and real token usage.
-func (c *Client) Complete(prompt string) (response string, model string, citations []Citation, tokenUsage usage.Usage, err error) {
+func (c *Client) Complete(prompt, country string) (response string, model string, citations []Citation, tokenUsage usage.Usage, err error) {
 	if c.apiKey == "" {
 		return "", "", nil, usage.Usage{}, errors.New("openai api key not configured")
 	}
 
-	logs.Info(fmt.Sprintf("openai request: model=%s country=TH tool_choice=required input=%q", c.model, prompt))
+	logs.Info(fmt.Sprintf("openai request: model=%s country=%s tool_choice=required input=%q", c.model, country, prompt))
+
+	webSearch := responsesTool{Type: "web_search"}
+	if country != "" {
+		webSearch.UserLocation = &userLocation{Type: "approximate", Country: country}
+	}
 
 	reqBody, err := json.Marshal(responsesRequest{
 		Model: c.model,
-		// TODO: hardcoded to Thailand — this whole product is single-market
-		// today (see the "🇹🇭 Thailand" chip throughout the frontend). Once
-		// companies track multiple markets, this needs to come from the
-		// caller instead (e.g. the company's configured market).
-		Tools: []responsesTool{{Type: "web_search", UserLocation: &userLocation{Type: "approximate", Country: "TH"}}},
+		Tools: []responsesTool{webSearch},
 		// Force the search to actually run — left as "auto" the model will
 		// sometimes ask a clarifying question instead of searching, which
 		// defeats the point of tracking what it actually finds.

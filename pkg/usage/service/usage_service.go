@@ -23,8 +23,8 @@ func (s usageService) Log(companyId *int, engine, purpose, model string, u usage
 	})
 }
 
-func (s usageService) GetSummaryForUser(userId int, from, to string) (*UsageSummaryResponse, error) {
-	rows, err := s.usageRepository.GetBreakdownForUser(userId, from, to)
+func (s usageService) GetSummaryForCompany(companyId int, from, to string) (*UsageSummaryResponse, error) {
+	rows, err := s.usageRepository.GetBreakdownForCompany(companyId, from, to)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()

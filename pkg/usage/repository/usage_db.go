@@ -23,10 +23,9 @@ func (r usageRepositoryDB) Log(l UsageLog) error {
 	return err
 }
 
-// GetBreakdownForUser sums usage across every company this user owns or is
-// an accepted member of — matches the same owner-or-member access rule used
-// everywhere else in the app.
-func (r usageRepositoryDB) GetBreakdownForUser(userId int, from, to string) ([]EngineBreakdown, error) {
+// GetBreakdownForCompany sums usage for one company. Access is checked by the
+// route's company middleware, not here.
+func (r usageRepositoryDB) GetBreakdownForCompany(companyId int, from, to string) ([]EngineBreakdown, error) {
 	list := []EngineBreakdown{}
 	query := `
 		SELECT
@@ -37,13 +36,9 @@ func (r usageRepositoryDB) GetBreakdownForUser(userId int, from, to string) ([]E
 			COALESCE(SUM(u.output_tokens), 0)::INT AS output_tokens,
 			COALESCE(SUM(u.cost_usd), 0)::FLOAT AS cost_usd
 		FROM api_usage_log u
-		WHERE u.company_id IN (
-			SELECT id FROM companies WHERE user_id = $1
-			UNION
-			SELECT company_id FROM company_members WHERE user_id = $1 AND status = 'active'
-		)
+		WHERE u.company_id = $1
 	`
-	args := []interface{}{userId}
+	args := []interface{}{companyId}
 	if from != "" {
 		args = append(args, from)
 		query += ` AND u.created_at::date >= $` + strconv.Itoa(len(args))

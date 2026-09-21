@@ -68,18 +68,22 @@ type searchResponse struct {
 // that's reported back as an error, the same as any other provider
 // returning no usable response, so this engine is simply skipped for that
 // run rather than saving something empty.
-func (c *Client) Complete(prompt string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
+func (c *Client) Complete(prompt, country string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
 	if c.apiKey == "" {
 		return "", "", nil, usage.Usage{}, errors.New("serpapi api key not configured")
 	}
 
-	logs.Info(fmt.Sprintf("serpapi request: q=%q", prompt))
+	logs.Info(fmt.Sprintf("serpapi request: country=%s q=%q", country, prompt))
 
-	overview, err := c.fetch(url.Values{
+	params := url.Values{
 		"engine":  {"google"},
 		"q":       {prompt},
 		"api_key": {c.apiKey},
-	})
+	}
+	if country != "" {
+		params.Set("gl", strings.ToLower(country))
+	}
+	overview, err := c.fetch(params)
 	if err != nil {
 		return "", "", nil, usage.Usage{}, err
 	}

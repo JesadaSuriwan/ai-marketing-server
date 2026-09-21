@@ -12,6 +12,7 @@ import (
 
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/providers/citation"
+	"github.com/ai-marketing/ai-marketing-server/providers/location"
 	"github.com/ai-marketing/ai-marketing-server/providers/usage"
 )
 
@@ -38,8 +39,9 @@ func NewClient(apiKey string) *Client {
 }
 
 type generateRequest struct {
-	Contents []content `json:"contents"`
-	Tools    []tool    `json:"tools"`
+	SystemInstruction *content  `json:"system_instruction,omitempty"`
+	Contents          []content `json:"contents"`
+	Tools             []tool    `json:"tools"`
 }
 
 type content struct {
@@ -87,16 +89,22 @@ type generateResponse struct {
 // Complete sends prompt to Gemini with Google Search grounding enabled and
 // returns the search-grounded response text, the model used, the real source
 // URLs the model actually cited, and real token usage.
-func (c *Client) Complete(prompt string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
+func (c *Client) Complete(prompt, country string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
 	if c.apiKey == "" {
 		return "", "", nil, usage.Usage{}, errors.New("gemini api key not configured")
 	}
 
-	logs.Info(fmt.Sprintf("gemini request: model=%s input=%q", c.model, prompt))
+	logs.Info(fmt.Sprintf("gemini request: model=%s country=%s input=%q", c.model, country, prompt))
+
+	var system *content
+	if hint := location.Hint(country); hint != "" {
+		system = &content{Parts: []part{{Text: hint}}}
+	}
 
 	reqBody, err := json.Marshal(generateRequest{
-		Contents: []content{{Parts: []part{{Text: prompt}}}},
-		Tools:    []tool{{}},
+		SystemInstruction: system,
+		Contents:          []content{{Parts: []part{{Text: prompt}}}},
+		Tools:             []tool{{}},
 	})
 	if err != nil {
 		return "", "", nil, usage.Usage{}, err

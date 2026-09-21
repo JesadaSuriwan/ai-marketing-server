@@ -11,6 +11,7 @@ import (
 
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/providers/citation"
+	"github.com/ai-marketing/ai-marketing-server/providers/location"
 	"github.com/ai-marketing/ai-marketing-server/providers/usage"
 )
 
@@ -77,16 +78,22 @@ type chatResponse struct {
 // grounding is on by default for the "sonar" model family, no separate tool
 // flag needed — and returns the response text, model used, the real source
 // URLs it actually cited, and real token usage.
-func (c *Client) Complete(prompt string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
+func (c *Client) Complete(prompt, country string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
 	if c.apiKey == "" {
 		return "", "", nil, usage.Usage{}, errors.New("perplexity api key not configured")
 	}
 
-	logs.Info(fmt.Sprintf("perplexity request: model=%s input=%q", c.model, prompt))
+	logs.Info(fmt.Sprintf("perplexity request: model=%s country=%s input=%q", c.model, country, prompt))
+
+	messages := []chatMessage{}
+	if hint := location.Hint(country); hint != "" {
+		messages = append(messages, chatMessage{Role: "system", Content: hint})
+	}
+	messages = append(messages, chatMessage{Role: "user", Content: prompt})
 
 	reqBody, err := json.Marshal(chatRequest{
 		Model:    c.model,
-		Messages: []chatMessage{{Role: "user", Content: prompt}},
+		Messages: messages,
 	})
 	if err != nil {
 		return "", "", nil, usage.Usage{}, err

@@ -63,7 +63,20 @@ func (s promptService) GetAll(companyId int) (*PromptListResponse, error) {
 	return &PromptListResponse{Status: true, Desc: "Get prompts successful", Data: data}, nil
 }
 
+// Each prompt runs for exactly one country: the engines are told where the
+// user is, so a multi-country prompt would blend markets. Track another
+// country by adding the prompt again.
+func validateSingleCountry(codes []string) error {
+	if len(codes) != 1 || len(strings.TrimSpace(codes[0])) != 2 {
+		return errs.NewBadRequestError("choose exactly one country for a prompt")
+	}
+	return nil
+}
+
 func (s promptService) Create(req CreatePromptRequest) (*PromptResponse, error) {
+	if err := validateSingleCountry(req.CountryCodes); err != nil {
+		return nil, err
+	}
 	company, err := s.companyRepository.GetById(req.CompanyId)
 	if err != nil {
 		return nil, errs.NewNotFoundError("company not found")
@@ -141,6 +154,11 @@ func (s promptService) GetById(id, userId int) (*PromptResponse, error) {
 func (s promptService) Update(id, userId int, req UpdatePromptRequest) (*SimpleResponse, error) {
 	if err := s.verifyOwnership(id, userId); err != nil {
 		return nil, err
+	}
+	if req.CountryCodes != nil {
+		if err := validateSingleCountry(req.CountryCodes); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := s.promptRepository.NewTransaction()

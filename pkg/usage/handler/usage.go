@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/pkg/usage/service"
@@ -17,10 +18,14 @@ func NewUsageHandler(usageService service.UsageService) usageHandler {
 }
 
 func (h usageHandler) GetSummary(c *gin.Context) {
-	userId := c.GetInt("userId")
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
 	from := c.Query("from")
 	to := c.Query("to")
-	result, err := h.usageService.GetSummaryForUser(userId, from, to)
+	result, err := h.usageService.GetSummaryForCompany(companyId, from, to)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

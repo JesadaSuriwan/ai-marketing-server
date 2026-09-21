@@ -10,7 +10,7 @@ import (
 // the response text). Satisfied by providers/openai.Client and
 // providers/gemini.Client.
 type AIProvider interface {
-	Complete(prompt string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error)
+	Complete(prompt, country string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error)
 }
 
 // ExtractionProvider is implemented by the model used to turn a raw run

@@ -24,5 +24,5 @@ type UsageService interface {
 	// error for the caller to log, never to propagate.
 	Log(companyId *int, engine, purpose, model string, u usage.Usage) error
 	// from/to are optional "YYYY-MM-DD" bounds; empty means all-time.
-	GetSummaryForUser(userId int, from, to string) (*UsageSummaryResponse, error)
+	GetSummaryForCompany(companyId int, from, to string) (*UsageSummaryResponse, error)
 }
