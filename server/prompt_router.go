@@ -52,12 +52,12 @@ func (s *ginServer) initPromptRouter() {
 	openaiClient := openai.NewClient(s.conf.Env.OpenAIAPIKey)
 	geminiClient := gemini.NewClient(s.conf.Env.GeminiAPIKey)
 	perplexityClient := perplexity.NewClient(s.conf.Env.PerplexityAPIKey)
-	claudeClient := claude.NewClient(s.conf.Env.ClaudeAPIKey)
+	claudeClient := claude.NewClient(s.conf.Env.ClaudeAPIKey, s.conf.Env.ClaudeEngineModel)
 	serpApiClient := serpapi.NewClient(s.conf.Env.SerpApiAPIKey)
 	// Separate from claudeClient above: this key/client is used only for the
 	// citation-extraction step (turning a raw run response into structured
 	// brand mentions), not for running prompts.
-	anthropicClient := anthropic.NewClient(s.conf.Env.AnthropicAPIKey)
+	anthropicClient := anthropic.NewClient(s.conf.Env.AnthropicAPIKey, s.conf.Env.ExtractionModel)
 
 	// Every "Run Prompt" fans out across all engines here — add a new
 	// provider's client to this list to have it run alongside the others.

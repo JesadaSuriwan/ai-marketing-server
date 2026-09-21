@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
@@ -320,6 +321,41 @@ func capList(c []candidate, n int) []candidate {
 	return c
 }
 
+const recommendationBatchSize = 8
+
+func (s recommendationService) writeCopy(companyId int, companyName string, batch []candidate, contexts map[int]string, activeRules []string, guidance string) ([]claudeCopy, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Client company: %s\n\n", companyName)
+	for _, c := range batch {
+		fmt.Fprintf(&b, "%d. %s\n", c.Id, contexts[c.Id])
+	}
+	if len(activeRules) > 0 {
+		b.WriteString("\nStanding rules (apply to every generation):\n")
+		for _, rule := range activeRules {
+			fmt.Fprintf(&b, "- %s\n", rule)
+		}
+	}
+	if guidance != "" {
+		fmt.Fprintf(&b, "\nUser guidance for this run: %s\n", guidance)
+	}
+
+	raw, model, tokenUsage, err := s.aiProvider.Complete(recommendationSystemPrompt, b.String())
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.usageService.Log(&companyId, "claude", "recommendation", model, tokenUsage); err != nil {
+		logs.Error(fmt.Errorf("failed to log usage for recommendation generation (company %d): %w", companyId, err))
+	}
+
+	var copies []claudeCopy
+	if err := json.Unmarshal([]byte(extractJSONArray(raw)), &copies); err != nil {
+		logs.Info("recommendation: unparseable claude response: " + raw)
+		return nil, err
+	}
+	return copies, nil
+}
+
 func (s recommendationService) Generate(companyId, userId int, guidance string) (*RecommendationListResponse, error) {
 	candidates, contexts, err := s.buildCandidates(companyId)
 	if err != nil {
@@ -343,44 +379,46 @@ func (s recommendationService) Generate(companyId, userId int, guidance string) 
 			return nil, errs.NewUnexpectedError()
 		}
 
-		var b strings.Builder
-		fmt.Fprintf(&b, "Client company: %s\n\n", company.Name)
-		for _, c := range candidates {
-			fmt.Fprintf(&b, "%d. %s\n", c.Id, contexts[c.Id])
-		}
-
 		activeRules, err := s.recommendationRuleRepository.GetActiveTexts(companyId)
 		if err != nil {
 			logs.Error(fmt.Errorf("failed to load recommendation rules for company %d: %w", companyId, err))
-		} else if len(activeRules) > 0 {
-			b.WriteString("\nStanding rules (apply to every generation):\n")
-			for _, rule := range activeRules {
-				fmt.Fprintf(&b, "- %s\n", rule)
+			activeRules = nil
+		}
+		guidance = strings.TrimSpace(guidance)
+
+		// One Claude call per batch: a single call covering every candidate
+		// overflowed the output token limit and truncated the JSON.
+		var batches [][]candidate
+		for i := 0; i < len(candidates); i += recommendationBatchSize {
+			batches = append(batches, candidates[i:min(i+recommendationBatchSize, len(candidates))])
+		}
+
+		batchCopies := make([][]claudeCopy, len(batches))
+		batchErrs := make([]error, len(batches))
+		var wg sync.WaitGroup
+		for i, batch := range batches {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				batchCopies[i], batchErrs[i] = s.writeCopy(companyId, company.Name, batch, contexts, activeRules, guidance)
+			}()
+		}
+		wg.Wait()
+
+		failed := 0
+		for i := range batches {
+			if batchErrs[i] != nil {
+				logs.Error(fmt.Errorf("recommendation batch %d/%d failed for company %d: %w", i+1, len(batches), companyId, batchErrs[i]))
+				failed++
+				continue
+			}
+			for _, cp := range batchCopies[i] {
+				copyById[cp.Id] = cp
 			}
 		}
-
-		if guidance = strings.TrimSpace(guidance); guidance != "" {
-			fmt.Fprintf(&b, "\nUser guidance for this run: %s\n", guidance)
-		}
-
-		raw, model, tokenUsage, err := s.aiProvider.Complete(recommendationSystemPrompt, b.String())
-		if err != nil {
-			logs.Error(err)
+		// Candidates from a failed batch aren't saved, so the next generate retries them.
+		if failed == len(batches) {
 			return nil, errs.NewUnexpectedError()
-		}
-
-		if err := s.usageService.Log(&companyId, "claude", "recommendation", model, tokenUsage); err != nil {
-			logs.Error(fmt.Errorf("failed to log usage for recommendation generation (company %d): %w", companyId, err))
-		}
-
-		var copies []claudeCopy
-		if err := json.Unmarshal([]byte(extractJSONArray(raw)), &copies); err != nil {
-			logs.Error(err)
-			logs.Info("recommendation: unparseable claude response: " + raw)
-			return nil, errs.NewUnexpectedError()
-		}
-		for _, cp := range copies {
-			copyById[cp.Id] = cp
 		}
 	}
 

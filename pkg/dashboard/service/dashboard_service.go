@@ -195,6 +195,19 @@ func (s dashboardService) GetBrandRanking(companyId int) (*BrandRankingResponse,
 	return &BrandRankingResponse{Status: true, Desc: "Get brand ranking successful", Data: data}, nil
 }
 
+func (s dashboardService) GetBrandCoverageTrend(companyId int) (*BrandCoverageTrendResponse, error) {
+	rows, err := s.dashboardRepository.GetBrandCoverageTrend(companyId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	data := []BrandCoverageTrendData{}
+	for _, r := range rows {
+		data = append(data, BrandCoverageTrendData{BrandId: r.BrandId, Date: r.Date, Coverage: r.Coverage})
+	}
+	return &BrandCoverageTrendResponse{Status: true, Desc: "Get brand coverage trend successful", Data: data}, nil
+}
+
 func (s dashboardService) GetTopPromptsByBrand(companyId int) (*TopPromptsByBrandResponse, error) {
 	rows, err := s.dashboardRepository.GetTopPromptsByBrand(companyId)
 	if err != nil {

@@ -296,6 +296,21 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int) ([]BrandRankingRow
 	return list, err
 }
 
+func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int) ([]BrandCoverageTrendRow, error) {
+	list := []BrandCoverageTrendRow{}
+	query := `
+		SELECT bcd.brand_id,
+			TO_CHAR(bcd.stat_date, 'YYYY-MM-DD') AS date,
+			COALESCE(ROUND(bcd.covered_prompts::NUMERIC / NULLIF(bcd.total_prompts, 0) * 100, 1), 0)::FLOAT AS coverage
+		FROM brand_coverage_daily bcd
+		JOIN brands b ON b.id = bcd.brand_id
+		WHERE b.company_id = $1
+		ORDER BY bcd.stat_date ASC
+	`
+	err := r.db.Select(&list, query, companyId)
+	return list, err
+}
+
 func (r dashboardRepositoryDB) GetTopPromptsByBrand(companyId int) ([]TopPromptByBrand, error) {
 	list := []TopPromptByBrand{}
 	query := `

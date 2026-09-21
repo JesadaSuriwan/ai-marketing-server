@@ -79,6 +79,12 @@ type PromptOverview struct {
 	Active               bool   `db:"active"`
 }
 
+type BrandCoverageTrendRow struct {
+	BrandId  int     `db:"brand_id"`
+	Date     string  `db:"date"`
+	Coverage float64 `db:"coverage"`
+}
+
 type BrandRankingRow struct {
 	Id             int     `db:"id"`
 	Rank           int     `db:"rank"`
@@ -174,6 +180,7 @@ type DashboardRepository interface {
 	GetPromptRankings(promptId, companyId int, from, to string) ([]PromptRanking, error)
 	GetPromptDomains(promptId, companyId int, from, to string) ([]PromptDomain, error)
 	GetBrandRanking(companyId int) ([]BrandRankingRow, error)
+	GetBrandCoverageTrend(companyId int) ([]BrandCoverageTrendRow, error)
 	GetTopPromptsByBrand(companyId int) ([]TopPromptByBrand, error)
 	GetTopCitationURLs(companyId int) ([]CitationURL, error)
 	GetPromptsOverview(companyId int, from, to string) ([]PromptOverview, error)

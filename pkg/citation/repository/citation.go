@@ -71,4 +71,5 @@ type CitationRepository interface {
 	UpdateArchive(tx *sqlx.Tx, id int, isArchived bool) error
 	BelongsToUser(id, userId int) (bool, error)
 	BumpDailyStat(tx *sqlx.Tx, companyId int, url, date string) error
+	SnapshotBrandCoverage(companyId int) error
 }

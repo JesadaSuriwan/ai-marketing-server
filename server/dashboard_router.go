@@ -31,6 +31,7 @@ func (s *ginServer) initDashboardRouter() {
 	router.GET("/prompt-domains", dashboardHandler.GetPromptDomains)
 	router.GET("/prompts-overview", dashboardHandler.GetPromptsOverview)
 	router.GET("/brand-ranking", dashboardHandler.GetBrandRanking)
+	router.GET("/brand-coverage-trend", dashboardHandler.GetBrandCoverageTrend)
 	router.GET("/top-prompts-by-brand", dashboardHandler.GetTopPromptsByBrand)
 	router.GET("/top-citation-urls", dashboardHandler.GetTopCitationURLs)
 	router.GET("/citation-urls", dashboardHandler.GetCitationURLs)

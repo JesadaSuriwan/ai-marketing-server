@@ -213,6 +213,10 @@ func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
 		return nil, errs.NewUnexpectedError()
 	}
 
+	if err := s.citationRepository.SnapshotBrandCoverage(prompt.CompanyId); err != nil {
+		logs.Error(fmt.Errorf("failed to snapshot brand coverage for company %d: %w", prompt.CompanyId, err))
+	}
+
 	return &PromptRunListResponse{Status: true, Desc: "Prompt run successful", Data: data}, nil
 }
 

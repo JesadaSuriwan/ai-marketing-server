@@ -240,6 +240,17 @@ CREATE TABLE IF NOT EXISTS citation_ranking_history (
     rank INT NOT NULL
 );
 
+-- One row per brand per day, written after every prompt run. citations rows
+-- are upserted in place (last_checked moves forward), so per-day coverage
+-- can't be reconstructed later — it has to be snapshotted as it happens.
+CREATE TABLE IF NOT EXISTS brand_coverage_daily (
+    brand_id INT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+    stat_date DATE NOT NULL,
+    covered_prompts INT NOT NULL,
+    total_prompts INT NOT NULL,
+    PRIMARY KEY (brand_id, stat_date)
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

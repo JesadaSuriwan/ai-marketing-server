@@ -58,6 +58,12 @@ type (
 		// shared test address so invites work before a custom domain is
 		// verified.
 		EmailFrom string `mapstructure:"email_from"`
+		// Per-use Claude model IDs, so each use can be sized independently
+		// (see the defaults set in GetConfig).
+		ClaudeEngineModel     string `mapstructure:"claude_engine_model"`
+		ExtractionModel       string `mapstructure:"extraction_model"`
+		PromptSuggestionModel string `mapstructure:"prompt_suggestion_model"`
+		RecommendationModel   string `mapstructure:"recommendation_model"`
 	}
 
 	Scheduler struct {
@@ -92,6 +98,14 @@ func GetConfig() *Config {
 		viper.BindEnv("env.resend_api_key", "RESEND_API_KEY")
 		viper.BindEnv("env.email_from", "EMAIL_FROM")
 		viper.SetDefault("env.email_from", "Minimice Group Marketing AI <onboarding@resend.dev>")
+		viper.BindEnv("env.claude_engine_model", "CLAUDE_ENGINE_MODEL")
+		viper.BindEnv("env.extraction_model", "EXTRACTION_MODEL")
+		viper.BindEnv("env.prompt_suggestion_model", "PROMPT_SUGGESTION_MODEL")
+		viper.BindEnv("env.recommendation_model", "RECOMMENDATION_MODEL")
+		viper.SetDefault("env.claude_engine_model", "claude-sonnet-5")
+		viper.SetDefault("env.extraction_model", "claude-haiku-4-5-20251001")
+		viper.SetDefault("env.prompt_suggestion_model", "claude-sonnet-5")
+		viper.SetDefault("env.recommendation_model", "claude-sonnet-5")
 
 		if err := viper.ReadInConfig(); err != nil {
 			panic(err)

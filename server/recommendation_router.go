@@ -22,7 +22,7 @@ func (s *ginServer) initRecommendationRouter() {
 	// Deliberately its own key/client, separate from the "claude" prompt-run
 	// engine and from citation-extraction's ANTHROPIC_API_KEY, so
 	// Recommendations' Claude spend can be tracked independently.
-	anthropicClient := anthropic.NewClient(s.conf.Env.RecommendationClaudeAPIKey)
+	anthropicClient := anthropic.NewClient(s.conf.Env.RecommendationClaudeAPIKey, s.conf.Env.RecommendationModel)
 
 	recommendationRepo := repository.NewRecommendationRepositoryDB(s.db)
 	dashboardRepo := dashboardRepository.NewDashboardRepositoryDB(s.db)

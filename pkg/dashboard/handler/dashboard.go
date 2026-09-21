@@ -194,6 +194,20 @@ func (h dashboardHandler) GetBrandRanking(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+func (h dashboardHandler) GetBrandCoverageTrend(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	result, err := h.dashboardService.GetBrandCoverageTrend(companyId)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h dashboardHandler) GetBrandCitations(c *gin.Context) {
 	companyId, err := strconv.Atoi(c.Query("company_id"))
 	if err != nil {

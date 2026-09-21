@@ -17,19 +17,17 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/providers/usage"
 )
 
-const defaultModel = "claude-opus-4-8"
-
 type Client struct {
 	apiKey string
 	client sdk.Client
 	model  string
 }
 
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey, model string) *Client {
 	return &Client{
 		apiKey: apiKey,
 		client: sdk.NewClient(option.WithAPIKey(apiKey)),
-		model:  defaultModel,
+		model:  model,
 	}
 }
 

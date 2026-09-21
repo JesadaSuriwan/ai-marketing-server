@@ -17,7 +17,7 @@ func (s *ginServer) initPromptSuggestionRouter() {
 	if s.conf.Env.AnthropicAPIKey == "" {
 		logs.Info("ANTHROPIC_API_KEY not configured: POST /prompt-suggestions/generate will fail until it is set")
 	}
-	anthropicClient := anthropic.NewClient(s.conf.Env.AnthropicAPIKey)
+	anthropicClient := anthropic.NewClient(s.conf.Env.AnthropicAPIKey, s.conf.Env.PromptSuggestionModel)
 
 	suggestionRepository := repository.NewPromptSuggestionRepositoryDB(s.db)
 	dashboardRepo := dashboardRepository.NewDashboardRepositoryDB(s.db)

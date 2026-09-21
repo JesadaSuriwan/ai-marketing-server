@@ -166,6 +166,18 @@ type BrandCitationsResponse struct {
 	Data   []BrandCitationData `json:"data"`
 }
 
+type BrandCoverageTrendData struct {
+	BrandId  int     `json:"brand_id"`
+	Date     string  `json:"date"`
+	Coverage float64 `json:"coverage"`
+}
+
+type BrandCoverageTrendResponse struct {
+	Status bool                     `json:"status"`
+	Desc   string                   `json:"desc"`
+	Data   []BrandCoverageTrendData `json:"data"`
+}
+
 type BrandRankingResponse struct {
 	Status bool               `json:"status"`
 	Desc   string             `json:"desc"`
@@ -265,6 +277,7 @@ type DashboardService interface {
 	GetPromptRankings(promptId, companyId int, from, to string) (*PromptRankingsResponse, error)
 	GetPromptDomains(promptId, companyId int, from, to string) (*PromptDomainsResponse, error)
 	GetBrandRanking(companyId int) (*BrandRankingResponse, error)
+	GetBrandCoverageTrend(companyId int) (*BrandCoverageTrendResponse, error)
 	GetTopPromptsByBrand(companyId int) (*TopPromptsByBrandResponse, error)
 	GetTopCitationURLs(companyId int) (*TopCitationURLsResponse, error)
 	GetPromptsOverview(companyId int, from, to string) (*PromptsOverviewResponse, error)

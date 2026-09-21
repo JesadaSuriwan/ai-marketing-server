@@ -3,6 +3,7 @@ package anthropic
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -10,7 +11,9 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/providers/usage"
 )
 
-const defaultModel = "claude-opus-4-8"
+const (
+	maxTokens = 4096
+)
 
 type Client struct {
 	apiKey string
@@ -18,11 +21,11 @@ type Client struct {
 	model  string
 }
 
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey, model string) *Client {
 	return &Client{
 		apiKey: apiKey,
 		client: sdk.NewClient(option.WithAPIKey(apiKey)),
-		model:  defaultModel,
+		model:  model,
 	}
 }
 
@@ -35,7 +38,7 @@ func (c *Client) Complete(systemPrompt, userPrompt string) (response string, mod
 
 	msg, err := c.client.Messages.New(context.Background(), sdk.MessageNewParams{
 		Model:     c.model,
-		MaxTokens: 2048,
+		MaxTokens: maxTokens,
 		System:    []sdk.TextBlockParam{{Text: systemPrompt}},
 		Messages: []sdk.MessageParam{
 			sdk.NewUserMessage(sdk.NewTextBlock(userPrompt)),
@@ -43,6 +46,10 @@ func (c *Client) Complete(systemPrompt, userPrompt string) (response string, mod
 	})
 	if err != nil {
 		return "", "", usage.Usage{}, err
+	}
+
+	if msg.StopReason == sdk.StopReasonMaxTokens {
+		return "", "", usage.Usage{}, fmt.Errorf("anthropic response truncated at max_tokens=%d", maxTokens)
 	}
 
 	var text string

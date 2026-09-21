@@ -128,3 +128,22 @@ func (r citationRepositoryDB) BelongsToUser(id, userId int) (bool, error) {
 		)`, id, userId)
 	return owned, err
 }
+
+// SnapshotBrandCoverage records today's coverage (distinct prompts citing the
+// brand out of all the company's prompts) for every brand of the company.
+// Re-running on the same day overwrites that day's row.
+func (r citationRepositoryDB) SnapshotBrandCoverage(companyId int) error {
+	_, err := r.db.Exec(`
+		WITH total AS (SELECT COUNT(*) AS n FROM prompts WHERE company_id = $1)
+		INSERT INTO brand_coverage_daily (brand_id, stat_date, covered_prompts, total_prompts)
+		SELECT b.id, CURRENT_DATE,
+			(SELECT COUNT(DISTINCT c.prompt_id) FROM citations c JOIN prompts p ON p.id = c.prompt_id
+			 WHERE c.brand_id = b.id AND p.company_id = $1),
+			total.n
+		FROM brands b, total
+		WHERE b.company_id = $1
+		ON CONFLICT (brand_id, stat_date) DO UPDATE SET
+			covered_prompts = EXCLUDED.covered_prompts,
+			total_prompts = EXCLUDED.total_prompts`, companyId)
+	return err
+}
