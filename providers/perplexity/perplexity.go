@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ai-marketing/ai-marketing-server/logs"
@@ -15,85 +16,101 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/providers/usage"
 )
 
-const apiURL = "https://api.perplexity.ai/chat/completions"
+// Perplexity retired the Sonar chat-completions endpoint in favor of the
+// Agent API — same product, different request/response shape. Confirmed
+// against three independent doc pages (migration guide, API reference, and
+// the quickstart's own example curl) before changing this, since guessing
+// at an external API's schema wrong would just trade one production outage
+// for another.
+// https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar/overview
+const apiURL = "https://api.perplexity.ai/v1/agent"
 
-// defaultModel is Perplexity's standard search-grounded model — every
-// response is web-search-grounded by default, unlike OpenAI/Gemini there's
-// no separate "tool" flag to enable it. "sonar-pro" is available for deeper
-// multi-step search reasoning at higher cost, if ever needed.
-const defaultModel = "sonar"
+// defaultPreset replaces the old "sonar" model name — the Agent API takes a
+// configuration-intensity preset instead of a model. "fast" is documented as
+// the direct Sonar replacement (mirrors the old default of plain "sonar").
+const defaultPreset = "fast"
 
 type Client struct {
 	apiKey     string
-	model      string
+	preset     string
 	httpClient *http.Client
 }
 
 func NewClient(apiKey string) *Client {
 	return &Client{
 		apiKey:     apiKey,
-		model:      defaultModel,
+		preset:     defaultPreset,
 		httpClient: &http.Client{Timeout: 45 * time.Second},
 	}
 }
 
-type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+type agentRequest struct {
+	Preset string `json:"preset"`
+	Input  string `json:"input"`
+	// Instructions is the Agent API's dedicated system-prompt field — a
+	// cleaner equivalent to the old code's hack of prepending a
+	// system-role chat message, now that there's no messages array at all.
+	Instructions string `json:"instructions,omitempty"`
 }
 
-type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
+type urlCitation struct {
+	Type  string `json:"type"`
+	Url   string `json:"url"`
+	Title string `json:"title"`
+}
+
+type messageContent struct {
+	Type        string        `json:"type"`
+	Text        string        `json:"text"`
+	Annotations []urlCitation `json:"annotations"`
 }
 
 type searchResult struct {
-	Title string `json:"title"`
-	Url   string `json:"url"`
+	Url     string `json:"url"`
+	Title   string `json:"title"`
+	Snippet string `json:"snippet"`
 }
 
-type chatUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+// outputItem covers only the two item types this app cares about (message
+// text and search results) — the Agent API's output array can also carry
+// function-call/tool-use step items this app never requests, which
+// json.Unmarshal just leaves as zero values here.
+type outputItem struct {
+	Type    string           `json:"type"`
+	Content []messageContent `json:"content"`
+	Results []searchResult   `json:"results"`
 }
 
-type chatResponse struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	// SearchResults is the current, richer citation field (title + url).
-	SearchResults []searchResult `json:"search_results"`
-	// Citations is an older/simpler fallback: plain URL strings, no titles.
-	Citations []string  `json:"citations"`
-	Usage     chatUsage `json:"usage"`
-	Error     *struct {
+type agentUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+type agentResponse struct {
+	Model  string       `json:"model"`
+	Status string       `json:"status"`
+	Output []outputItem `json:"output"`
+	Usage  agentUsage   `json:"usage"`
+	Error  *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
-// Complete sends prompt to Perplexity's chat completions endpoint — search
-// grounding is on by default for the "sonar" model family, no separate tool
-// flag needed — and returns the response text, model used, the real source
-// URLs it actually cited, and real token usage.
+// Complete sends prompt to Perplexity's Agent API — search grounding is on
+// by default for the "fast" preset, same as Sonar before it — and returns
+// the response text, model used, the real source URLs it actually cited,
+// and real token usage.
 func (c *Client) Complete(prompt, country string) (response string, model string, citations []citation.Citation, tokenUsage usage.Usage, err error) {
 	if c.apiKey == "" {
 		return "", "", nil, usage.Usage{}, errors.New("perplexity api key not configured")
 	}
 
-	logs.Info(fmt.Sprintf("perplexity request: model=%s country=%s input=%q", c.model, country, prompt))
+	logs.Info(fmt.Sprintf("perplexity request: preset=%s country=%s input=%q", c.preset, country, prompt))
 
-	messages := []chatMessage{}
-	if hint := location.Hint(country); hint != "" {
-		messages = append(messages, chatMessage{Role: "system", Content: hint})
-	}
-	messages = append(messages, chatMessage{Role: "user", Content: prompt})
-
-	reqBody, err := json.Marshal(chatRequest{
-		Model:    c.model,
-		Messages: messages,
+	reqBody, err := json.Marshal(agentRequest{
+		Preset:       c.preset,
+		Input:        prompt,
+		Instructions: location.Hint(country),
 	})
 	if err != nil {
 		return "", "", nil, usage.Usage{}, err
@@ -117,48 +134,71 @@ func (c *Client) Complete(prompt, country string) (response string, model string
 		return "", "", nil, usage.Usage{}, err
 	}
 
-	var parsed chatResponse
+	var parsed agentResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return "", "", nil, usage.Usage{}, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK || parsed.Status == "failed" {
 		if parsed.Error != nil {
 			return "", "", nil, usage.Usage{}, fmt.Errorf("perplexity error: %s", parsed.Error.Message)
 		}
 		return "", "", nil, usage.Usage{}, fmt.Errorf("perplexity request failed with status %d", resp.StatusCode)
 	}
 
-	if len(parsed.Choices) == 0 {
-		return "", "", nil, usage.Usage{}, errors.New("perplexity returned no choices")
+	var textParts []string
+	var inlineCitations []citation.Citation
+	var searchResultCitations []citation.Citation
+	seen := map[string]bool{}
+
+	for _, item := range parsed.Output {
+		switch item.Type {
+		case "message":
+			for _, mc := range item.Content {
+				if mc.Text != "" {
+					textParts = append(textParts, mc.Text)
+				}
+				for _, a := range mc.Annotations {
+					if a.Type != "url_citation" || a.Url == "" || seen[a.Url] {
+						continue
+					}
+					seen[a.Url] = true
+					inlineCitations = append(inlineCitations, citation.Citation{URL: a.Url, Title: a.Title})
+				}
+			}
+		case "search_results":
+			for _, r := range item.Results {
+				if r.Url == "" || seen[r.Url] {
+					continue
+				}
+				seen[r.Url] = true
+				searchResultCitations = append(searchResultCitations, citation.Citation{URL: r.Url, Title: r.Title})
+			}
+		}
 	}
-	response = parsed.Choices[0].Message.Content
+
+	response = strings.Join(textParts, "\n\n")
 	if response == "" {
 		return "", "", nil, usage.Usage{}, errors.New("perplexity returned no message content")
 	}
 
-	if len(parsed.SearchResults) > 0 {
-		for _, sr := range parsed.SearchResults {
-			if sr.Url == "" {
-				continue
-			}
-			citations = append(citations, citation.Citation{URL: sr.Url, Title: sr.Title})
-		}
+	// Prefer the inline url_citation annotations — the URLs actually cited
+	// in the answer text, equivalent to what the old SearchResults field
+	// meant — and only fall back to the broader search_results list (pages
+	// the model looked at but didn't necessarily cite) if it cited nothing
+	// inline. Same fallback shape as the old Sonar response handling.
+	if len(inlineCitations) > 0 {
+		citations = inlineCitations
 	} else {
-		for _, u := range parsed.Citations {
-			if u == "" {
-				continue
-			}
-			citations = append(citations, citation.Citation{URL: u})
-		}
+		citations = searchResultCitations
 	}
 
 	model = parsed.Model
 	if model == "" {
-		model = c.model
+		model = c.preset
 	}
 
-	tokenUsage = usage.Usage{InputTokens: parsed.Usage.PromptTokens, OutputTokens: parsed.Usage.CompletionTokens}
+	tokenUsage = usage.Usage{InputTokens: parsed.Usage.InputTokens, OutputTokens: parsed.Usage.OutputTokens}
 	logs.Info(fmt.Sprintf("perplexity response: model=%s citations=%d tokens=%d/%d text=%q", model, len(citations), tokenUsage.InputTokens, tokenUsage.OutputTokens, response))
 
 	return response, model, citations, tokenUsage, nil
