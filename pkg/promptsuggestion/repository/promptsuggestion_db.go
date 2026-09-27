@@ -17,15 +17,15 @@ func (r promptSuggestionRepositoryDB) NewTransaction() (*sqlx.Tx, error) {
 func (r promptSuggestionRepositoryDB) Create(tx *sqlx.Tx, ps PromptSuggestion) (int, error) {
 	var id int
 	err := tx.QueryRowx(
-		`INSERT INTO prompt_suggestions (company_id, title, content, rationale, category) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-		ps.CompanyId, ps.Title, ps.Content, ps.Rationale, ps.Category,
+		`INSERT INTO prompt_suggestions (company_id, title, content, rationale, category, intent) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+		ps.CompanyId, ps.Title, ps.Content, ps.Rationale, ps.Category, ps.Intent,
 	).Scan(&id)
 	return id, err
 }
 
 func (r promptSuggestionRepositoryDB) GetById(id int) (*PromptSuggestion, error) {
 	ps := PromptSuggestion{}
-	err := r.db.Get(&ps, `SELECT id, company_id, title, content, rationale, category, status, created_prompt_id, created_at FROM prompt_suggestions WHERE id = $1`, id)
+	err := r.db.Get(&ps, `SELECT id, company_id, title, content, rationale, category, intent, status, created_prompt_id, created_at FROM prompt_suggestions WHERE id = $1`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (r promptSuggestionRepositoryDB) GetById(id int) (*PromptSuggestion, error)
 
 func (r promptSuggestionRepositoryDB) GetByCompanyId(companyId int) ([]PromptSuggestion, error) {
 	list := []PromptSuggestion{}
-	err := r.db.Select(&list, `SELECT id, company_id, title, content, rationale, category, status, created_prompt_id, created_at FROM prompt_suggestions WHERE company_id = $1 ORDER BY created_at DESC`, companyId)
+	err := r.db.Select(&list, `SELECT id, company_id, title, content, rationale, category, intent, status, created_prompt_id, created_at FROM prompt_suggestions WHERE company_id = $1 ORDER BY created_at DESC`, companyId)
 	return list, err
 }
 

@@ -9,6 +9,7 @@ type PromptSuggestion struct {
 	Content         string  `db:"content"`
 	Rationale       *string `db:"rationale"`
 	Category        *string `db:"category"`
+	Intent          *string `db:"intent"`
 	Status          string  `db:"status"`
 	CreatedPromptId *int    `db:"created_prompt_id"`
 	CreatedAt       string  `db:"created_at"`

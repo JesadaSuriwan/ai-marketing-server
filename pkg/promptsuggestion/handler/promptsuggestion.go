@@ -24,8 +24,9 @@ func (h promptSuggestionHandler) Generate(c *gin.Context) {
 		return
 	}
 	userId, _ := c.Get("userId")
+	seed := c.Query("seed")
 
-	result, err := h.promptSuggestionService.Generate(companyId, userId.(int))
+	result, err := h.promptSuggestionService.Generate(companyId, userId.(int), seed)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -49,7 +50,8 @@ func (h promptSuggestionHandler) List(c *gin.Context) {
 }
 
 type updateStatusRequest struct {
-	Status string `json:"status" binding:"required"`
+	Status      string `json:"status" binding:"required"`
+	CountryCode string `json:"country_code"`
 }
 
 func (h promptSuggestionHandler) UpdateStatus(c *gin.Context) {
@@ -66,7 +68,7 @@ func (h promptSuggestionHandler) UpdateStatus(c *gin.Context) {
 		return
 	}
 
-	result, err := h.promptSuggestionService.UpdateStatus(id, userId.(int), req.Status)
+	result, err := h.promptSuggestionService.UpdateStatus(id, userId.(int), req.Status, req.CountryCode)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

@@ -21,14 +21,25 @@ const systemPrompt = `You are an AI-search visibility strategist for a marketing
 
 Suggest exactly 5 new prompts (search queries) worth tracking that would fill coverage gaps, target categories the company is weak in, or capture opportunities where competitors are currently winning. Each suggestion must be a realistic, natural-language question a real user might ask an AI chatbot.
 
+For each suggestion also classify its intent — one of:
+- "informational": the asker wants to learn or understand something (how-to, what-is)
+- "comparison": the asker is weighing options against each other
+- "transactional": the asker is close to acting (pricing, where to buy, free trial)
+- "navigational": the asker is looking for a specific known product/brand/tool
+
 Respond with ONLY a JSON array, no prose, no markdown code fences, matching exactly this shape:
-[{"title": "short label", "content": "the full natural-language prompt text", "rationale": "one sentence on why this prompt matters", "category": "a short category name"}]`
+[{"title": "short label", "content": "the full natural-language prompt text", "rationale": "one sentence on why this prompt matters", "category": "a short category name", "intent": "informational"|"comparison"|"transactional"|"navigational"}]`
 
 type claudeSuggestion struct {
 	Title     string `json:"title"`
 	Content   string `json:"content"`
 	Rationale string `json:"rationale"`
 	Category  string `json:"category"`
+	Intent    string `json:"intent"`
+}
+
+var validIntents = map[string]bool{
+	"informational": true, "comparison": true, "transactional": true, "navigational": true,
 }
 
 type promptSuggestionService struct {
@@ -67,16 +78,20 @@ func toData(ps repository.PromptSuggestion) PromptSuggestionData {
 	if ps.Category != nil {
 		category = *ps.Category
 	}
+	intent := ""
+	if ps.Intent != nil {
+		intent = *ps.Intent
+	}
 	return PromptSuggestionData{
 		Id: ps.Id, CompanyId: ps.CompanyId, Title: ps.Title, Content: ps.Content,
-		Rationale: rationale, Category: category, Status: ps.Status,
+		Rationale: rationale, Category: category, Intent: intent, Status: ps.Status,
 		CreatedPromptId: ps.CreatedPromptId, CreatedAt: ps.CreatedAt,
 	}
 }
 
 // buildContext summarizes the company's current tracked-prompt performance
 // data into a compact text block for Claude to analyze.
-func (s promptSuggestionService) buildContext(companyId int) (string, error) {
+func (s promptSuggestionService) buildContext(companyId int, seed string) (string, error) {
 	var b strings.Builder
 
 	company, err := s.companyRepository.GetById(companyId)
@@ -88,6 +103,10 @@ func (s promptSuggestionService) buildContext(companyId int) (string, error) {
 		industry = *company.Industry
 	}
 	fmt.Fprintf(&b, "Company: %s (industry: %s)\n\n", company.Name, industry)
+
+	if seed = strings.TrimSpace(seed); seed != "" {
+		fmt.Fprintf(&b, "Focus specifically on this topic/seed when suggesting prompts: %q — every suggestion should be a realistic question related to it.\n\n", seed)
+	}
 
 	categories, err := s.categoryRepository.GetAll(companyId)
 	if err != nil {
@@ -158,8 +177,8 @@ func extractJSONArray(s string) string {
 	return s[start : end+1]
 }
 
-func (s promptSuggestionService) Generate(companyId, userId int) (*PromptSuggestionListResponse, error) {
-	context, err := s.buildContext(companyId)
+func (s promptSuggestionService) Generate(companyId, userId int, seed string) (*PromptSuggestionListResponse, error) {
+	context, err := s.buildContext(companyId, seed)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -196,9 +215,13 @@ func (s promptSuggestionService) Generate(companyId, userId int) (*PromptSuggest
 		}
 		rationale := p.Rationale
 		category := p.Category
+		intent := strings.ToLower(strings.TrimSpace(p.Intent))
+		if !validIntents[intent] {
+			intent = ""
+		}
 		id, err := s.suggestionRepository.Create(tx, repository.PromptSuggestion{
 			CompanyId: companyId, Title: p.Title, Content: p.Content,
-			Rationale: &rationale, Category: &category,
+			Rationale: &rationale, Category: &category, Intent: &intent,
 		})
 		if err != nil {
 			logs.Error(err)
@@ -206,7 +229,7 @@ func (s promptSuggestionService) Generate(companyId, userId int) (*PromptSuggest
 		}
 		data = append(data, PromptSuggestionData{
 			Id: id, CompanyId: companyId, Title: p.Title, Content: p.Content,
-			Rationale: rationale, Category: category, Status: "pending",
+			Rationale: rationale, Category: category, Intent: intent, Status: "pending",
 		})
 	}
 
@@ -259,9 +282,12 @@ func (s promptSuggestionService) resolveCategory(tx *sqlx.Tx, companyId int, nam
 	return &id, nil
 }
 
-func (s promptSuggestionService) UpdateStatus(id, userId int, status string) (*SimpleResponse, error) {
+func (s promptSuggestionService) UpdateStatus(id, userId int, status, countryCode string) (*SimpleResponse, error) {
 	if status != "accepted" && status != "dismissed" {
 		return nil, errs.NewBadRequestError("status must be 'accepted' or 'dismissed'")
+	}
+	if status == "accepted" && len(strings.TrimSpace(countryCode)) != 2 {
+		return nil, errs.NewBadRequestError("choose a country for this prompt")
 	}
 
 	owned, err := s.suggestionRepository.BelongsToUser(id, userId)
@@ -317,6 +343,10 @@ func (s promptSuggestionService) UpdateStatus(id, userId int, status string) (*S
 			Title: suggestion.Title, Content: suggestion.Content,
 		})
 		if err != nil {
+			logs.Error(err)
+			return nil, errs.NewUnexpectedError()
+		}
+		if err := s.promptRepository.SetCountries(tx, newId, []string{strings.ToUpper(strings.TrimSpace(countryCode))}); err != nil {
 			logs.Error(err)
 			return nil, errs.NewUnexpectedError()
 		}
