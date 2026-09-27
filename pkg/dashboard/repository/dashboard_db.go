@@ -296,18 +296,38 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int) ([]BrandRankingRow
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int) ([]BrandCoverageTrendRow, error) {
+// GetBrandCoverageTrend computes each brand's day-by-day coverage —
+// COUNT(DISTINCT covered prompt) / COUNT(DISTINCT tracked prompt) — from the
+// raw per-(prompt,brand,engine,day) citation facts, filtered by engine, tag
+// and/or country at query time. The denominator (which prompts count as
+// "tracked") uses each prompt's CURRENT tag/country, not what it was on that
+// historical day — the same simplification other historical reports in this
+// app already make, and unavoidable since tag/country aren't versioned.
+func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) ([]BrandCoverageTrendRow, error) {
 	list := []BrandCoverageTrendRow{}
 	query := `
-		SELECT bcd.brand_id,
-			TO_CHAR(bcd.stat_date, 'YYYY-MM-DD') AS date,
-			COALESCE(ROUND(bcd.covered_prompts::NUMERIC / NULLIF(bcd.total_prompts, 0) * 100, 1), 0)::FLOAT AS coverage
-		FROM brand_coverage_daily bcd
-		JOIN brands b ON b.id = bcd.brand_id
-		WHERE b.company_id = $1
-		ORDER BY bcd.stat_date ASC
+		WITH filtered_prompts AS (
+			SELECT DISTINCT p.id
+			FROM prompts p
+			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
+			WHERE p.company_id = $1
+			  AND ($4 = 0 OR p.tag_id = $4)
+			  AND ($5 = '' OR pco.country_code = $5)
+		),
+		total AS (SELECT COUNT(*) AS n FROM filtered_prompts)
+		SELECT bpcd.brand_id,
+			TO_CHAR(bpcd.stat_date, 'YYYY-MM-DD') AS date,
+			COALESCE(ROUND(COUNT(DISTINCT bpcd.prompt_id)::NUMERIC / NULLIF((SELECT n FROM total), 0) * 100, 1), 0)::FLOAT AS coverage
+		FROM brand_prompt_coverage_daily bpcd
+		JOIN brands b ON b.id = bpcd.brand_id AND b.company_id = $1
+		JOIN filtered_prompts fp ON fp.id = bpcd.prompt_id
+		WHERE ($2 = '' OR bpcd.stat_date >= $2::date)
+		  AND ($3 = '' OR bpcd.stat_date <= $3::date)
+		  AND ($6 = '' OR bpcd.engine = $6)
+		GROUP BY bpcd.brand_id, bpcd.stat_date
+		ORDER BY bpcd.stat_date ASC
 	`
-	err := r.db.Select(&list, query, companyId)
+	err := r.db.Select(&list, query, companyId, from, to, tagId, country, engine)
 	return list, err
 }
 
@@ -353,7 +373,7 @@ func (r dashboardRepositoryDB) GetTopCitationURLs(companyId int) ([]CitationURL,
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetCitationURLs(companyId int) ([]CitationURLDetail, error) {
+func (r dashboardRepositoryDB) GetCitationURLs(companyId int, from, to string) ([]CitationURLDetail, error) {
 	list := []CitationURLDetail{}
 	query := `
 		WITH own_brand_id AS (
@@ -386,27 +406,133 @@ func (r dashboardRepositoryDB) GetCitationURLs(companyId int) ([]CitationURLDeta
 		WHERE p.company_id = $1
 		  AND c.url IS NOT NULL
 		  AND c.url != ''
+		  AND ($2 = '' OR c.last_checked >= $2::date)
+		  AND ($3 = '' OR c.last_checked <= $3::date)
 		GROUP BY c.url, ob.id
 		ORDER BY cited DESC
-		LIMIT 200
+	`
+	// No LIMIT here (there used to be one, capped at 200) — GetCitationURLChanges
+	// (Gaining/Losing ground) considers every citation with no such cap, so a
+	// domain capped out of this query but still surfaced there would be
+	// completely unfindable in the KPI cards and table it's supposed to relate
+	// to. The table itself paginates client-side, so a larger result set here
+	// doesn't cost a bigger render — just a bigger response payload.
+	err := r.db.Select(&list, query, companyId, from, to)
+	return list, err
+}
+
+// GetDomainCoverageTrend turns the existing per-URL daily citation counts
+// (citation_url_daily_stats, already bumped on every prompt run) into each
+// domain's day-by-day share of that day's citations.
+func (r dashboardRepositoryDB) GetDomainCoverageTrend(companyId int) ([]DomainCoverageTrendRow, error) {
+	list := []DomainCoverageTrendRow{}
+	query := `
+		WITH per_domain_day AS (
+			SELECT
+				REGEXP_REPLACE(url, '^(?:https?://)?(?:www\.)?([^/?#]*).*$', '\1') AS domain,
+				stat_date,
+				SUM(citation_count) AS cnt
+			FROM citation_url_daily_stats
+			WHERE company_id = $1
+			GROUP BY domain, stat_date
+		),
+		day_totals AS (
+			SELECT stat_date, SUM(cnt) AS total FROM per_domain_day GROUP BY stat_date
+		)
+		SELECT pd.domain,
+			TO_CHAR(pd.stat_date, 'YYYY-MM-DD') AS date,
+			COALESCE(ROUND(pd.cnt::NUMERIC / NULLIF(dt.total, 0) * 100, 1), 0)::FLOAT AS coverage
+		FROM per_domain_day pd
+		JOIN day_totals dt ON dt.stat_date = pd.stat_date
+		ORDER BY pd.stat_date ASC
 	`
 	err := r.db.Select(&list, query, companyId)
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo string) ([]CitationURLChange, error) {
+// GetPromptBrandCoverageTrend is the same idea as GetBrandCoverageTrend but
+// scoped to one prompt: for each day, what share of the engines that ran
+// this prompt that day cited each brand. Built from brand_prompt_coverage_daily
+// (recorded per prompt+brand+engine+day since that table was introduced —
+// see its migration comment for why there's no earlier history) joined
+// against prompt_runs for the day's real engine count.
+func (r dashboardRepositoryDB) GetPromptBrandCoverageTrend(promptId, companyId int) ([]PromptBrandCoverageTrendRow, error) {
+	list := []PromptBrandCoverageTrendRow{}
+	query := `
+		WITH runs_per_day AS (
+			SELECT created_at::date AS stat_date, COUNT(DISTINCT ai_platform) AS n
+			FROM prompt_runs
+			WHERE prompt_id = $1
+			GROUP BY created_at::date
+		)
+		SELECT b.name AS brand,
+			TO_CHAR(bpcd.stat_date, 'YYYY-MM-DD') AS date,
+			COALESCE(ROUND(COUNT(DISTINCT bpcd.engine)::NUMERIC / NULLIF((SELECT n FROM runs_per_day WHERE stat_date = bpcd.stat_date), 0) * 100, 1), 0)::FLOAT AS coverage
+		FROM brand_prompt_coverage_daily bpcd
+		JOIN brands b ON b.id = bpcd.brand_id
+		WHERE bpcd.prompt_id = $1 AND b.company_id = $2
+		GROUP BY b.name, bpcd.stat_date
+		ORDER BY bpcd.stat_date ASC
+	`
+	err := r.db.Select(&list, query, promptId, companyId)
+	return list, err
+}
+
+// GetCitationURLChanges scopes the current-vs-previous-period comparison to
+// only the URLs that match the page's filter bar — computed the same way
+// GetCitationURLs computes domain_category/source_type/engines/tags/country
+// per URL (aggregated across that URL's citations, current state — the daily
+// snapshot table itself doesn't carry these dimensions, only a per-day
+// count), so a domain filtered out of the table is filtered out of
+// Gaining/Losing ground too. Empty string ("" for category/sourceType,
+// tags/engines/countries) means "no filter on this dimension", matching the
+// page's own "no filter selected" convention.
+func (r dashboardRepositoryDB) GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo, category, sourceType, tags, engines, countries string) ([]CitationURLChange, error) {
 	list := []CitationURLChange{}
 	query := `
-		WITH current_period AS (
+		WITH own_brand_id AS (
+			SELECT COALESCE(MIN(id), 0) AS id FROM brands WHERE company_id = $1 AND is_own = TRUE
+		),
+		url_attrs AS (
+			SELECT
+				c.url,
+				CASE
+					WHEN BOOL_OR(b.id IS NOT NULL AND b.is_own = TRUE) THEN 'Brand'
+					WHEN BOOL_OR(b.id IS NOT NULL AND b.is_own = FALSE) THEN 'Competitor'
+					ELSE 'Others'
+				END AS category,
+				COALESCE(MIN(c.source_type), 'other') AS source_type,
+				COALESCE(STRING_AGG(DISTINCT c.ai_platform, ','), '') AS engines,
+				COALESCE(STRING_AGG(DISTINCT pc.name, ','), '') AS tags,
+				COALESCE(MAX(c.target_country), '') AS target_country
+			FROM citations c
+			CROSS JOIN own_brand_id ob
+			JOIN prompts p ON p.id = c.prompt_id AND p.company_id = $1
+			LEFT JOIN brands b ON b.id = c.brand_id AND b.company_id = $1
+			LEFT JOIN prompt_categories pc ON pc.id = p.tag_id
+			WHERE c.url IS NOT NULL AND c.url != ''
+			GROUP BY c.url, ob.id
+		),
+		matching_urls AS (
+			SELECT url FROM url_attrs
+			WHERE ($6 = '' OR category = $6)
+			  AND ($7 = '' OR source_type = $7)
+			  AND ($8 = '' OR EXISTS (SELECT 1 FROM unnest(string_to_array($8, ',')) t WHERE t = ANY(string_to_array(tags, ','))))
+			  AND ($9 = '' OR EXISTS (SELECT 1 FROM unnest(string_to_array($9, ',')) t WHERE t = ANY(string_to_array(engines, ','))))
+			  AND ($10 = '' OR target_country = ANY(string_to_array($10, ',')))
+		),
+		current_period AS (
 			SELECT url, SUM(citation_count) AS cnt
 			FROM citation_url_daily_stats
 			WHERE company_id = $1 AND stat_date >= $2 AND stat_date <= $3
+			  AND url IN (SELECT url FROM matching_urls)
 			GROUP BY url
 		),
 		previous_period AS (
 			SELECT url, SUM(citation_count) AS cnt
 			FROM citation_url_daily_stats
 			WHERE company_id = $1 AND stat_date >= $4 AND stat_date <= $5
+			  AND url IN (SELECT url FROM matching_urls)
 			GROUP BY url
 		),
 		combined AS (
@@ -426,7 +552,7 @@ func (r dashboardRepositoryDB) GetCitationURLChanges(companyId int, currentFrom,
 		LEFT JOIN prompts pr ON pr.id = cit.prompt_id AND pr.company_id = $1
 		GROUP BY combined.url, combined.current_count, combined.previous_count
 	`
-	err := r.db.Select(&list, query, companyId, currentFrom, currentTo, previousFrom, previousTo)
+	err := r.db.Select(&list, query, companyId, currentFrom, currentTo, previousFrom, previousTo, category, sourceType, tags, engines, countries)
 	return list, err
 }
 

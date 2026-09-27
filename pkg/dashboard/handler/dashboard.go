@@ -200,7 +200,45 @@ func (h dashboardHandler) GetBrandCoverageTrend(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetBrandCoverageTrend(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	engine := c.Query("engine")
+	country := c.Query("country")
+	tagId, _ := strconv.Atoi(c.Query("tag_id"))
+	result, err := h.dashboardService.GetBrandCoverageTrend(companyId, from, to, engine, tagId, country)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h dashboardHandler) GetDomainCoverageTrend(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	result, err := h.dashboardService.GetDomainCoverageTrend(companyId)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h dashboardHandler) GetPromptBrandCoverageTrend(c *gin.Context) {
+	promptId, err := strconv.Atoi(c.Query("prompt_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid prompt_id"))
+		return
+	}
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	result, err := h.dashboardService.GetPromptBrandCoverageTrend(promptId, companyId)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -261,7 +299,9 @@ func (h dashboardHandler) GetCitationURLs(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetCitationURLs(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	result, err := h.dashboardService.GetCitationURLs(companyId, from, to)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -275,7 +315,12 @@ func (h dashboardHandler) GetCitationWinnersLosers(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetCitationWinnersLosers(companyId)
+	category := c.Query("category")
+	sourceType := c.Query("source_type")
+	tags := c.Query("tags")
+	engines := c.Query("engines")
+	countries := c.Query("countries")
+	result, err := h.dashboardService.GetCitationWinnersLosers(companyId, category, sourceType, tags, engines, countries)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

@@ -85,6 +85,18 @@ type BrandCoverageTrendRow struct {
 	Coverage float64 `db:"coverage"`
 }
 
+type DomainCoverageTrendRow struct {
+	Domain   string  `db:"domain"`
+	Date     string  `db:"date"`
+	Coverage float64 `db:"coverage"`
+}
+
+type PromptBrandCoverageTrendRow struct {
+	Brand    string  `db:"brand"`
+	Date     string  `db:"date"`
+	Coverage float64 `db:"coverage"`
+}
+
 type BrandRankingRow struct {
 	Id             int     `db:"id"`
 	Rank           int     `db:"rank"`
@@ -180,12 +192,14 @@ type DashboardRepository interface {
 	GetPromptRankings(promptId, companyId int, from, to string) ([]PromptRanking, error)
 	GetPromptDomains(promptId, companyId int, from, to string) ([]PromptDomain, error)
 	GetBrandRanking(companyId int) ([]BrandRankingRow, error)
-	GetBrandCoverageTrend(companyId int) ([]BrandCoverageTrendRow, error)
+	GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) ([]BrandCoverageTrendRow, error)
+	GetDomainCoverageTrend(companyId int) ([]DomainCoverageTrendRow, error)
+	GetPromptBrandCoverageTrend(promptId, companyId int) ([]PromptBrandCoverageTrendRow, error)
 	GetTopPromptsByBrand(companyId int) ([]TopPromptByBrand, error)
 	GetTopCitationURLs(companyId int) ([]CitationURL, error)
 	GetPromptsOverview(companyId int, from, to string) ([]PromptOverview, error)
-	GetCitationURLs(companyId int) ([]CitationURLDetail, error)
+	GetCitationURLs(companyId int, from, to string) ([]CitationURLDetail, error)
 	GetCitationURLPrompts(url string, companyId int) ([]CitationURLPrompt, error)
-	GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo string) ([]CitationURLChange, error)
+	GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo, category, sourceType, tags, engines, countries string) ([]CitationURLChange, error)
 	GetBrandCitations(companyId, brandId int) ([]BrandCitation, error)
 }

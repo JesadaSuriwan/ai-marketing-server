@@ -178,6 +178,30 @@ type BrandCoverageTrendResponse struct {
 	Data   []BrandCoverageTrendData `json:"data"`
 }
 
+type DomainCoverageTrendData struct {
+	Domain   string  `json:"domain"`
+	Date     string  `json:"date"`
+	Coverage float64 `json:"coverage"`
+}
+
+type DomainCoverageTrendResponse struct {
+	Status bool                      `json:"status"`
+	Desc   string                    `json:"desc"`
+	Data   []DomainCoverageTrendData `json:"data"`
+}
+
+type PromptBrandCoverageTrendData struct {
+	Brand    string  `json:"brand"`
+	Date     string  `json:"date"`
+	Coverage float64 `json:"coverage"`
+}
+
+type PromptBrandCoverageTrendResponse struct {
+	Status bool                           `json:"status"`
+	Desc   string                         `json:"desc"`
+	Data   []PromptBrandCoverageTrendData `json:"data"`
+}
+
 type BrandRankingResponse struct {
 	Status bool               `json:"status"`
 	Desc   string             `json:"desc"`
@@ -277,12 +301,14 @@ type DashboardService interface {
 	GetPromptRankings(promptId, companyId int, from, to string) (*PromptRankingsResponse, error)
 	GetPromptDomains(promptId, companyId int, from, to string) (*PromptDomainsResponse, error)
 	GetBrandRanking(companyId int) (*BrandRankingResponse, error)
-	GetBrandCoverageTrend(companyId int) (*BrandCoverageTrendResponse, error)
+	GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) (*BrandCoverageTrendResponse, error)
+	GetDomainCoverageTrend(companyId int) (*DomainCoverageTrendResponse, error)
+	GetPromptBrandCoverageTrend(promptId, companyId int) (*PromptBrandCoverageTrendResponse, error)
 	GetTopPromptsByBrand(companyId int) (*TopPromptsByBrandResponse, error)
 	GetTopCitationURLs(companyId int) (*TopCitationURLsResponse, error)
 	GetPromptsOverview(companyId int, from, to string) (*PromptsOverviewResponse, error)
-	GetCitationURLs(companyId int) (*CitationURLsResponse, error)
+	GetCitationURLs(companyId int, from, to string) (*CitationURLsResponse, error)
 	GetCitationURLPrompts(url string, companyId int) (*CitationURLPromptsResponse, error)
-	GetCitationWinnersLosers(companyId int) (*CitationWinnersLosersResponse, error)
+	GetCitationWinnersLosers(companyId int, category, sourceType, tags, engines, countries string) (*CitationWinnersLosersResponse, error)
 	GetBrandCitations(companyId, brandId int) (*BrandCitationsResponse, error)
 }

@@ -204,7 +204,7 @@ func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[
 	contexts := map[int]string{}
 	nextId := 1
 
-	urls, err := s.dashboardRepository.GetCitationURLs(companyId)
+	urls, err := s.dashboardRepository.GetCitationURLs(companyId, "", "")
 	if err != nil {
 		return nil, nil, err
 	}

@@ -195,8 +195,8 @@ func (s dashboardService) GetBrandRanking(companyId int) (*BrandRankingResponse,
 	return &BrandRankingResponse{Status: true, Desc: "Get brand ranking successful", Data: data}, nil
 }
 
-func (s dashboardService) GetBrandCoverageTrend(companyId int) (*BrandCoverageTrendResponse, error) {
-	rows, err := s.dashboardRepository.GetBrandCoverageTrend(companyId)
+func (s dashboardService) GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) (*BrandCoverageTrendResponse, error) {
+	rows, err := s.dashboardRepository.GetBrandCoverageTrend(companyId, from, to, engine, tagId, country)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -206,6 +206,32 @@ func (s dashboardService) GetBrandCoverageTrend(companyId int) (*BrandCoverageTr
 		data = append(data, BrandCoverageTrendData{BrandId: r.BrandId, Date: r.Date, Coverage: r.Coverage})
 	}
 	return &BrandCoverageTrendResponse{Status: true, Desc: "Get brand coverage trend successful", Data: data}, nil
+}
+
+func (s dashboardService) GetDomainCoverageTrend(companyId int) (*DomainCoverageTrendResponse, error) {
+	rows, err := s.dashboardRepository.GetDomainCoverageTrend(companyId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	data := []DomainCoverageTrendData{}
+	for _, r := range rows {
+		data = append(data, DomainCoverageTrendData{Domain: r.Domain, Date: r.Date, Coverage: r.Coverage})
+	}
+	return &DomainCoverageTrendResponse{Status: true, Desc: "Get domain coverage trend successful", Data: data}, nil
+}
+
+func (s dashboardService) GetPromptBrandCoverageTrend(promptId, companyId int) (*PromptBrandCoverageTrendResponse, error) {
+	rows, err := s.dashboardRepository.GetPromptBrandCoverageTrend(promptId, companyId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	data := []PromptBrandCoverageTrendData{}
+	for _, r := range rows {
+		data = append(data, PromptBrandCoverageTrendData{Brand: r.Brand, Date: r.Date, Coverage: r.Coverage})
+	}
+	return &PromptBrandCoverageTrendResponse{Status: true, Desc: "Get prompt brand coverage trend successful", Data: data}, nil
 }
 
 func (s dashboardService) GetTopPromptsByBrand(companyId int) (*TopPromptsByBrandResponse, error) {
@@ -234,8 +260,8 @@ func (s dashboardService) GetTopCitationURLs(companyId int) (*TopCitationURLsRes
 	return &TopCitationURLsResponse{Status: true, Desc: "Get top citation URLs successful", Data: data}, nil
 }
 
-func (s dashboardService) GetCitationURLs(companyId int) (*CitationURLsResponse, error) {
-	rows, err := s.dashboardRepository.GetCitationURLs(companyId)
+func (s dashboardService) GetCitationURLs(companyId int, from, to string) (*CitationURLsResponse, error) {
+	rows, err := s.dashboardRepository.GetCitationURLs(companyId, from, to)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -287,15 +313,21 @@ func (s dashboardService) GetPromptDomains(promptId, companyId int, from, to str
 // GetCitationWinnersLosers compares each cited URL's citation count over the
 // last 7 days against the 7 days before that, using real daily snapshots
 // (citation_url_daily_stats) rather than the citations table's running
-// lifetime total, which has no period boundaries to diff against.
-func (s dashboardService) GetCitationWinnersLosers(companyId int) (*CitationWinnersLosersResponse, error) {
+// lifetime total, which has no period boundaries to diff against. That
+// 7-vs-7-day comparison window itself is always fixed — it isn't the same
+// kind of control as the page's own date-range picker, which scopes a
+// snapshot rather than a trend — but which URLs are eligible for it at all
+// is scoped by the same category/source type/tag/engine/country filters as
+// the rest of the Citations page, so a domain filtered out of the table is
+// filtered out of this comparison too.
+func (s dashboardService) GetCitationWinnersLosers(companyId int, category, sourceType, tags, engines, countries string) (*CitationWinnersLosersResponse, error) {
 	now := time.Now()
 	currentTo := now.Format("2006-01-02")
 	currentFrom := now.AddDate(0, 0, -6).Format("2006-01-02")
 	previousTo := now.AddDate(0, 0, -7).Format("2006-01-02")
 	previousFrom := now.AddDate(0, 0, -13).Format("2006-01-02")
 
-	rows, err := s.dashboardRepository.GetCitationURLChanges(companyId, currentFrom, currentTo, previousFrom, previousTo)
+	rows, err := s.dashboardRepository.GetCitationURLChanges(companyId, currentFrom, currentTo, previousFrom, previousTo, category, sourceType, tags, engines, countries)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
