@@ -59,6 +59,21 @@ func (r brandRepositoryDB) ClearOwn(tx *sqlx.Tx, companyId, exceptId int) error 
 	return err
 }
 
+func (r brandRepositoryDB) AddAlias(tx *sqlx.Tx, brandId int, name string) error {
+	_, err := tx.Exec(`
+		INSERT INTO brand_aliases (brand_id, name) VALUES ($1, $2)
+		ON CONFLICT (brand_id, name) DO NOTHING`, brandId, name)
+	return err
+}
+
+func (r brandRepositoryDB) GetAliasesForCompany(companyId int) ([]BrandAlias, error) {
+	list := []BrandAlias{}
+	query := `SELECT ba.id, ba.brand_id, ba.name FROM brand_aliases ba
+		JOIN brands b ON b.id = ba.brand_id WHERE b.company_id = $1`
+	err := r.db.Select(&list, query, companyId)
+	return list, err
+}
+
 func (r brandRepositoryDB) BelongsToUser(id, userId int) (bool, error) {
 	var owned bool
 	err := r.db.Get(&owned, `

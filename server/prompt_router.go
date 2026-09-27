@@ -8,6 +8,7 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/middlewares"
 	brandRepository "github.com/ai-marketing/ai-marketing-server/pkg/brand/repository"
+	brandCandidateRepository "github.com/ai-marketing/ai-marketing-server/pkg/brandcandidate/repository"
 	citationRepository "github.com/ai-marketing/ai-marketing-server/pkg/citation/repository"
 	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/handler"
@@ -75,9 +76,10 @@ func (s *ginServer) initPromptRouter() {
 	visibilityRepo := visibilityRepository.NewVisibilityRepositoryDB(s.db)
 	companyRepo := companyRepository.NewCompanyRepositoryDB(s.db)
 	subdomainRepo := subdomainRepository.NewSubdomainRepositoryDB(s.db)
+	brandCandidateRepo := brandCandidateRepository.NewBrandCandidateRepositoryDB(s.db)
 
 	runService := promptRunService.NewPromptRunService(
-		runRepository, promptRepository, brandRepo, citationRepo, visibilityRepo, companyRepo, subdomainRepo,
+		runRepository, promptRepository, brandRepo, citationRepo, visibilityRepo, companyRepo, subdomainRepo, brandCandidateRepo,
 		engines, anthropicClient, s.usageService,
 	)
 	// Exposed so the scheduler (started separately) can reuse the exact same

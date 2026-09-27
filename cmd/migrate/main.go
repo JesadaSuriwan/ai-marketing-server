@@ -164,10 +164,14 @@ CREATE TABLE IF NOT EXISTS prompt_suggestions (
     content TEXT NOT NULL,
     rationale TEXT,
     category TEXT,
+    -- One of informational|comparison|transactional|navigational — Claude's
+    -- own classification of what the asker wants, alongside the suggestion.
+    intent TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     created_prompt_id INT REFERENCES prompts(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE prompt_suggestions ADD COLUMN IF NOT EXISTS intent TEXT;
 
 CREATE TABLE IF NOT EXISTS visibility_data (
     id SERIAL PRIMARY KEY,
@@ -240,15 +244,46 @@ CREATE TABLE IF NOT EXISTS citation_ranking_history (
     rank INT NOT NULL
 );
 
--- One row per brand per day, written after every prompt run. citations rows
--- are upserted in place (last_checked moves forward), so per-day coverage
--- can't be reconstructed later — it has to be snapshotted as it happens.
-CREATE TABLE IF NOT EXISTS brand_coverage_daily (
+-- One row per (prompt, brand, engine, day) a citation was found. citations
+-- rows are upserted in place (last_checked moves forward on re-run), so
+-- historical coverage can't be reconstructed later — it has to be recorded
+-- as it happens. Kept at prompt+engine grain (rather than pre-aggregated)
+-- so the coverage trend chart can be filtered by engine/tag/country at query
+-- time via a join against prompts, without needing a snapshot per filter
+-- combination.
+-- Alternate names a brand is also known by (e.g. "IDEA HOME" as a variant
+-- spelling of "Idea Home"). Citation extraction is told about these too, so
+-- a mention under an alias resolves to the canonical brand instead of
+-- surfacing as a new candidate every time.
+CREATE TABLE IF NOT EXISTS brand_aliases (
+    id SERIAL PRIMARY KEY,
     brand_id INT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (brand_id, name)
+);
+
+-- Brand-like names citation extraction noticed in an AI answer that aren't
+-- in the tracked list (brands + brand_aliases) yet. Surfaced for review in
+-- "More Detected Brands"; resolving one either aliases it onto an existing
+-- brand or creates a new competitor.
+CREATE TABLE IF NOT EXISTS brand_candidates (
+    id SERIAL PRIMARY KEY,
+    company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    mention_count INT NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pending',
+    first_seen TIMESTAMP DEFAULT NOW(),
+    last_seen TIMESTAMP DEFAULT NOW(),
+    UNIQUE (company_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS brand_prompt_coverage_daily (
+    prompt_id INT NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+    brand_id INT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL,
     stat_date DATE NOT NULL,
-    covered_prompts INT NOT NULL,
-    total_prompts INT NOT NULL,
-    PRIMARY KEY (brand_id, stat_date)
+    PRIMARY KEY (prompt_id, brand_id, engine, stat_date)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (

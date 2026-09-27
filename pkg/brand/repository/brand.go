@@ -15,6 +15,14 @@ type Brand struct {
 	CreatedAt   string  `db:"created_at"`
 }
 
+// BrandAlias is an alternate name a brand is also known by — see
+// brand_aliases in the migration for why this exists.
+type BrandAlias struct {
+	Id      int    `db:"id"`
+	BrandId int    `db:"brand_id"`
+	Name    string `db:"name"`
+}
+
 type BrandRepository interface {
 	NewTransaction() (*sqlx.Tx, error)
 	GetAll(companyId int) ([]Brand, error)
@@ -27,4 +35,12 @@ type BrandRepository interface {
 	// "at most one own brand per company", which the dashboard queries assume.
 	ClearOwn(tx *sqlx.Tx, companyId, exceptId int) error
 	BelongsToUser(id, userId int) (bool, error)
+	// AddAlias records that brandId is also known as name. A duplicate
+	// (brand_id, name) is a silent no-op — the alias already exists.
+	AddAlias(tx *sqlx.Tx, brandId int, name string) error
+	// GetAliasesForCompany returns every alias across every brand the
+	// company tracks — used to build the "tracked brands" list handed to
+	// citation extraction, so a mention under an alias resolves to its
+	// canonical brand instead of surfacing as a new candidate.
+	GetAliasesForCompany(companyId int) ([]BrandAlias, error)
 }

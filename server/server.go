@@ -94,6 +94,7 @@ func (s *ginServer) Start() {
 	s.initDashboardRouter()
 	s.initPromptSuggestionRouter()
 	s.initRecommendationRuleRouter()
+	s.initBrandCandidateRouter()
 	s.initRecommendationRouter()
 
 	if s.conf.Scheduler != nil && s.conf.Scheduler.Enabled {

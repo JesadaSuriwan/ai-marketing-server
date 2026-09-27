@@ -10,6 +10,7 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	brandRepository "github.com/ai-marketing/ai-marketing-server/pkg/brand/repository"
+	brandCandidateRepository "github.com/ai-marketing/ai-marketing-server/pkg/brandcandidate/repository"
 	citationRepository "github.com/ai-marketing/ai-marketing-server/pkg/citation/repository"
 	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
 	promptRepository "github.com/ai-marketing/ai-marketing-server/pkg/prompt/repository"
@@ -40,10 +41,14 @@ For each URL, determine:
   - "sentiment": "positive", "neutral", or "negative"
   - "snippet": a short one-sentence quote or paraphrase of the relevant part of the text
   If this URL is NOT connected to any tracked brand, set "brand_name" to an empty string, "ranking" to 0, "sentiment" to "neutral", and "snippet" to a short one-sentence description of what the page appears to be about instead.
+
+Note: the tracked brand list may show a brand alongside names it's ALSO known by (e.g. "Idea Home (also known as: IDEA HOME, Idea Home Furniture)") — treat a mention under any of those alias names as a mention of that same tracked brand; always return the brand's ONE canonical name (the one listed before "also known as"), never an alias, as "brand_name".
 - "target_country": the ISO 3166-1 alpha-2 code (e.g. "TH", "US", "JP") of the market this specific page is targeting, ONLY when you have a real signal for it — a locale segment in the URL path or subdomain (e.g. "/th/", "th.example.com"), the page title/snippet being in a specific country's language, or content that's explicitly about that country. This is only asked for URLs on generic domains (.com, .org, .io, etc. — a country-coded domain's market is already known from the domain itself). If you have no genuine signal either way, return an empty string — do NOT guess from the brand's general market or default to any particular country.
 
-Respond with ONLY a JSON array, no prose, no markdown fences, matching exactly:
-[{"url": "one of the given cited URLs, copied exactly", "source_type": "editorial"|"directory"|"reference"|"social"|"news"|"marketplace"|"official_site"|"other", "brand_name": "exact tracked brand name, or empty string", "ranking": int, "sentiment": "positive"|"neutral"|"negative", "snippet": "short quote or description", "target_country": "ISO 3166-1 alpha-2 code, or empty string"}]`
+Separately, look at the full answer text (not just cited URLs) for other specific brand/company names it mentions that are NOT in the tracked list or its aliases — real, identifiable businesses a marketer would want to know are being recommended (e.g. a specific retailer or manufacturer name), not generic terms ("online stores", "local shops") or the tracked brands themselves. List each distinct one once, exactly as written in the text. If none, use an empty array.
+
+Respond with ONLY a JSON object, no prose, no markdown fences, matching exactly:
+{"citations": [{"url": "one of the given cited URLs, copied exactly", "source_type": "editorial"|"directory"|"reference"|"social"|"news"|"marketplace"|"official_site"|"other", "brand_name": "exact tracked brand name, or empty string", "ranking": int, "sentiment": "positive"|"neutral"|"negative", "snippet": "short quote or description", "target_country": "ISO 3166-1 alpha-2 code, or empty string"}], "other_brands": ["name", "..."]}`
 
 type extractedMention struct {
 	Url           string `json:"url"`
@@ -55,22 +60,28 @@ type extractedMention struct {
 	TargetCountry string `json:"target_country"`
 }
 
+type extractionResult struct {
+	Citations   []extractedMention `json:"citations"`
+	OtherBrands []string           `json:"other_brands"`
+}
+
 var validSourceTypes = map[string]bool{
 	"editorial": true, "directory": true, "reference": true, "social": true,
 	"news": true, "marketplace": true, "official_site": true, "other": true,
 }
 
 type promptRunService struct {
-	promptRunRepository  repository.PromptRunRepository
-	promptRepository     promptRepository.PromptRepository
-	brandRepository      brandRepository.BrandRepository
-	citationRepository   citationRepository.CitationRepository
-	visibilityRepository visibilityRepository.VisibilityRepository
-	companyRepository    companyRepository.CompanyRepository
-	subdomainRepository  subdomainRepository.SubdomainRepository
-	engines              []Engine
-	extractionProvider   ExtractionProvider
-	usageService         usageService.UsageService
+	promptRunRepository      repository.PromptRunRepository
+	promptRepository         promptRepository.PromptRepository
+	brandRepository          brandRepository.BrandRepository
+	citationRepository       citationRepository.CitationRepository
+	visibilityRepository     visibilityRepository.VisibilityRepository
+	companyRepository        companyRepository.CompanyRepository
+	subdomainRepository      subdomainRepository.SubdomainRepository
+	brandCandidateRepository brandCandidateRepository.BrandCandidateRepository
+	engines                  []Engine
+	extractionProvider       ExtractionProvider
+	usageService             usageService.UsageService
 }
 
 func NewPromptRunService(
@@ -81,13 +92,15 @@ func NewPromptRunService(
 	visibilityRepository visibilityRepository.VisibilityRepository,
 	companyRepository companyRepository.CompanyRepository,
 	subdomainRepository subdomainRepository.SubdomainRepository,
+	brandCandidateRepository brandCandidateRepository.BrandCandidateRepository,
 	engines []Engine,
 	extractionProvider ExtractionProvider,
 	usageService usageService.UsageService,
 ) PromptRunService {
 	return promptRunService{
 		promptRunRepository, promptRepository, brandRepository, citationRepository,
-		visibilityRepository, companyRepository, subdomainRepository, engines, extractionProvider, usageService,
+		visibilityRepository, companyRepository, subdomainRepository, brandCandidateRepository,
+		engines, extractionProvider, usageService,
 	}
 }
 
@@ -220,10 +233,6 @@ func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
 		return nil, errs.NewUnexpectedError()
 	}
 
-	if err := s.citationRepository.SnapshotBrandCoverage(prompt.CompanyId); err != nil {
-		logs.Error(fmt.Errorf("failed to snapshot brand coverage for company %d: %w", prompt.CompanyId, err))
-	}
-
 	return &PromptRunListResponse{Status: true, Desc: "Prompt run successful", Data: data}, nil
 }
 
@@ -262,7 +271,16 @@ func (s promptRunService) extractCitations(
 		}
 	}
 
-	userPrompt := buildExtractionPrompt(responseText, sourceCitations, brands, ownDomains)
+	aliases, err := s.brandRepository.GetAliasesForCompany(prompt.CompanyId)
+	if err != nil {
+		logs.Error(fmt.Errorf("failed to load brand aliases for company %d: %w", prompt.CompanyId, err))
+	}
+	aliasesByBrand := map[int][]string{}
+	for _, a := range aliases {
+		aliasesByBrand[a.BrandId] = append(aliasesByBrand[a.BrandId], a.Name)
+	}
+
+	userPrompt := buildExtractionPrompt(responseText, sourceCitations, brands, aliasesByBrand, ownDomains)
 	raw, extractionModel, tokenUsage, err := s.extractionProvider.Complete(extractionSystemPrompt, userPrompt)
 	if err != nil {
 		return err
@@ -272,13 +290,13 @@ func (s promptRunService) extractCitations(
 		logs.Error(fmt.Errorf("failed to log usage for citation extraction on prompt %d: %w", prompt.Id, err))
 	}
 
-	var parsed []extractedMention
-	if err := json.Unmarshal([]byte(extractJSONArray(raw)), &parsed); err != nil {
+	var parsed extractionResult
+	if err := json.Unmarshal([]byte(extractJSONObject(raw)), &parsed); err != nil {
 		return fmt.Errorf("unparseable extraction response: %w (raw: %s)", err, raw)
 	}
 
 	byUrl := map[string]extractedMention{}
-	for _, m := range parsed {
+	for _, m := range parsed.Citations {
 		byUrl[strings.TrimSpace(m.Url)] = m
 	}
 
@@ -399,13 +417,39 @@ func (s promptRunService) extractCitations(
 			}); err != nil {
 				return err
 			}
+			if err := s.citationRepository.SnapshotBrandCoverage(tx, prompt.Id, brand.Id, platform); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Any name the model saw mentioned that isn't a tracked brand or one of
+	// its aliases is a review candidate for "More Detected Brands" — best
+	// effort, so a failure here doesn't roll back the citations already
+	// written above.
+	known := map[string]bool{}
+	for _, br := range brands {
+		known[strings.ToLower(strings.TrimSpace(br.Name))] = true
+	}
+	for _, names := range aliasesByBrand {
+		for _, n := range names {
+			known[strings.ToLower(strings.TrimSpace(n))] = true
+		}
+	}
+	for _, name := range parsed.OtherBrands {
+		name = strings.TrimSpace(name)
+		if name == "" || known[strings.ToLower(name)] {
+			continue
+		}
+		if err := s.brandCandidateRepository.Upsert(tx, prompt.CompanyId, name); err != nil {
+			logs.Error(fmt.Errorf("failed to record brand candidate %q for company %d: %w", name, prompt.CompanyId, err))
 		}
 	}
 
 	return tx.Commit()
 }
 
-func buildExtractionPrompt(responseText string, citations []citation.Citation, brands []brandRepository.Brand, ownDomains []string) string {
+func buildExtractionPrompt(responseText string, citations []citation.Citation, brands []brandRepository.Brand, aliasesByBrand map[int][]string, ownDomains []string) string {
 	var b strings.Builder
 	b.WriteString("AI answer text:\n")
 	b.WriteString(responseText)
@@ -424,7 +468,11 @@ func buildExtractionPrompt(responseText string, citations []citation.Citation, b
 		if br.IsOwn {
 			own = " (this is the company's own brand)"
 		}
-		fmt.Fprintf(&b, "- %s%s\n", br.Name, own)
+		aliasNote := ""
+		if names := aliasesByBrand[br.Id]; len(names) > 0 {
+			aliasNote = fmt.Sprintf(" (also known as: %s)", strings.Join(names, ", "))
+		}
+		fmt.Fprintf(&b, "- %s%s%s\n", br.Name, aliasNote, own)
 	}
 
 	if len(ownDomains) > 0 {
@@ -510,6 +558,15 @@ func sentimentScore(sentiment string) float64 {
 func extractJSONArray(s string) string {
 	start := strings.Index(s, "[")
 	end := strings.LastIndex(s, "]")
+	if start == -1 || end == -1 || end < start {
+		return s
+	}
+	return s[start : end+1]
+}
+
+func extractJSONObject(s string) string {
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
 	if start == -1 || end == -1 || end < start {
 		return s
 	}
