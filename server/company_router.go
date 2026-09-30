@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/ai-marketing/ai-marketing-server/middlewares"
+	brandRepository "github.com/ai-marketing/ai-marketing-server/pkg/brand/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/company/handler"
 	"github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/company/service"
@@ -10,7 +11,8 @@ import (
 
 func (s *ginServer) initCompanyRouter() {
 	companyRepository := repository.NewCompanyRepositoryDB(s.db)
-	companyService := service.NewCompanyService(companyRepository, s.db)
+	brandRepo := brandRepository.NewBrandRepositoryDB(s.db)
+	companyService := service.NewCompanyService(companyRepository, brandRepo, s.db)
 	companyHandler := handler.NewCompanyHandler(companyService)
 
 	authMiddleware := middlewares.NewAuthMiddleware()

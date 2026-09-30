@@ -5,6 +5,7 @@ import (
 
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
+	brandRepository "github.com/ai-marketing/ai-marketing-server/pkg/brand/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/permission"
 	"github.com/jmoiron/sqlx"
@@ -33,11 +34,12 @@ func resolveContractEndDate(durationMonths *int, explicitDate *string) (string, 
 
 type companyService struct {
 	companyRepository repository.CompanyRepository
+	brandRepository   brandRepository.BrandRepository
 	db                *sqlx.DB
 }
 
-func NewCompanyService(companyRepository repository.CompanyRepository, db *sqlx.DB) CompanyService {
-	return companyService{companyRepository, db}
+func NewCompanyService(companyRepository repository.CompanyRepository, brandRepository brandRepository.BrandRepository, db *sqlx.DB) CompanyService {
+	return companyService{companyRepository, brandRepository, db}
 }
 
 // buildCompanyData computes the caller's effective role for this company —
@@ -168,6 +170,25 @@ func (s companyService) Create(userId int, req CreateCompanyRequest) (*CompanyRe
 
 	id, err := s.companyRepository.Create(tx, c)
 	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	// Every workspace needs exactly one brand flagged is_own — Brand Ranking,
+	// Brand Coverage Over Time, and the Citations KPI cards all key off it,
+	// and silently render blank instead of erroring when it's missing. That
+	// used to be a manual step during onboarding and got skipped for the
+	// large majority of real workspaces in production, so it's no longer
+	// optional: the company's own name/website become its own brand
+	// automatically, at the moment the workspace itself is created, so
+	// there's no window where a workspace exists without one.
+	if _, err = s.brandRepository.Create(tx, brandRepository.Brand{
+		CompanyId: id,
+		Name:      req.Name,
+		Domain:    req.Website,
+		Status:    "active",
+		IsOwn:     true,
+	}); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
 	}
