@@ -178,8 +178,8 @@ func (s dashboardService) GetPromptsOverview(companyId int, from, to string) (*P
 	return &PromptsOverviewResponse{Status: true, Desc: "Get prompts overview successful", Data: data}, nil
 }
 
-func (s dashboardService) GetBrandRanking(companyId int) (*BrandRankingResponse, error) {
-	rows, err := s.dashboardRepository.GetBrandRanking(companyId)
+func (s dashboardService) GetBrandRanking(companyId int, from, to, engine string, tagId int, country string) (*BrandRankingResponse, error) {
+	rows, err := s.dashboardRepository.GetBrandRanking(companyId, from, to, engine, tagId, country)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()

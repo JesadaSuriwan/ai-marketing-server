@@ -139,7 +139,7 @@ func (s promptSuggestionService) buildContext(companyId int, seed string) (strin
 	}
 	b.WriteString("\n")
 
-	ranking, err := s.dashboardRepository.GetBrandRanking(companyId)
+	ranking, err := s.dashboardRepository.GetBrandRanking(companyId, "", "", "", 0, "")
 	if err != nil {
 		return "", err
 	}

@@ -300,7 +300,7 @@ type DashboardService interface {
 	GetCompanyMetrics(companyId int) (*CompanyMetricsResponse, error)
 	GetPromptRankings(promptId, companyId int, from, to string) (*PromptRankingsResponse, error)
 	GetPromptDomains(promptId, companyId int, from, to string) (*PromptDomainsResponse, error)
-	GetBrandRanking(companyId int) (*BrandRankingResponse, error)
+	GetBrandRanking(companyId int, from, to, engine string, tagId int, country string) (*BrandRankingResponse, error)
 	GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) (*BrandCoverageTrendResponse, error)
 	GetDomainCoverageTrend(companyId int) (*DomainCoverageTrendResponse, error)
 	GetPromptBrandCoverageTrend(promptId, companyId int) (*PromptBrandCoverageTrendResponse, error)

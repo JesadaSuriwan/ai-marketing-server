@@ -186,7 +186,12 @@ func (h dashboardHandler) GetBrandRanking(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetBrandRanking(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	engine := c.Query("engine")
+	country := c.Query("country")
+	tagId, _ := strconv.Atoi(c.Query("tag_id"))
+	result, err := h.dashboardService.GetBrandRanking(companyId, from, to, engine, tagId, country)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

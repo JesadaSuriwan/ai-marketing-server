@@ -191,7 +191,7 @@ type DashboardRepository interface {
 	GetCompanyMetrics(companyId int) (*CompanyMetrics, error)
 	GetPromptRankings(promptId, companyId int, from, to string) ([]PromptRanking, error)
 	GetPromptDomains(promptId, companyId int, from, to string) ([]PromptDomain, error)
-	GetBrandRanking(companyId int) ([]BrandRankingRow, error)
+	GetBrandRanking(companyId int, from, to, engine string, tagId int, country string) ([]BrandRankingRow, error)
 	GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) ([]BrandCoverageTrendRow, error)
 	GetDomainCoverageTrend(companyId int) ([]DomainCoverageTrendRow, error)
 	GetPromptBrandCoverageTrend(promptId, companyId int) ([]PromptBrandCoverageTrendRow, error)

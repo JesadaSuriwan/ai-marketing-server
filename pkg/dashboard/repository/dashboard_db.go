@@ -252,14 +252,33 @@ func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to string
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetBrandRanking(companyId int) ([]BrandRankingRow, error) {
+// GetBrandRanking now takes the same date/engine/tag/country filters
+// GetBrandCoverageTrend already did — previously it always computed over
+// every citation ever recorded for the company, completely ignoring
+// whatever the Overview page's filter bar was set to, while the trend chart
+// right next to it already respected those filters. That meant "Your Brand
+// Mentions" and "Your Average Brand Position" silently never changed when
+// someone changed the date range, even though they sit directly beside a
+// chart that visibly does. Empty string/0 for any filter means "no filter
+// on this dimension", same convention as GetBrandCoverageTrend.
+func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engine string, tagId int, country string) ([]BrandRankingRow, error) {
 	list := []BrandRankingRow{}
 	query := `
-		WITH company_citations AS (
+		WITH filtered_prompts AS (
+			SELECT DISTINCT p.id
+			FROM prompts p
+			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
+			WHERE p.company_id = $1
+			  AND ($5 = 0 OR p.tag_id = $5)
+			  AND ($6 = '' OR pco.country_code = $6)
+		),
+		company_citations AS (
 			SELECT c.brand_id, c.prompt_id, c.ranking, c.sentiment
 			FROM citations c
-			JOIN prompts p ON c.prompt_id = p.id
-			WHERE p.company_id = $1
+			JOIN filtered_prompts fp ON fp.id = c.prompt_id
+			WHERE ($2 = '' OR c.last_checked >= $2::date)
+			  AND ($3 = '' OR c.last_checked <= $3::date)
+			  AND ($4 = '' OR c.ai_platform = $4)
 		),
 		brand_stats AS (
 			SELECT
@@ -276,7 +295,7 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int) ([]BrandRankingRow
 			WHERE b.company_id = $1
 			GROUP BY b.id, b.name, b.is_own
 		),
-		prompt_count AS (SELECT NULLIF(COUNT(*), 0) AS total FROM prompts WHERE company_id = $1),
+		prompt_count AS (SELECT NULLIF(COUNT(*), 0) AS total FROM filtered_prompts),
 		total_mentions AS (SELECT NULLIF(SUM(mentions), 0) AS total FROM brand_stats)
 		SELECT
 			bs.id,
@@ -292,7 +311,7 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int) ([]BrandRankingRow
 		ORDER BY bs.mentions DESC
 		LIMIT 20
 	`
-	err := r.db.Select(&list, query, companyId)
+	err := r.db.Select(&list, query, companyId, from, to, engine, tagId, country)
 	return list, err
 }
 
