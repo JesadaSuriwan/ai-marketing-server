@@ -96,7 +96,7 @@ func (s *ginServer) initPromptRouter() {
 	authMiddleware := middlewares.NewAuthMiddleware()
 	companyMiddleware := middlewares.NewCompanyMiddleware(s.db)
 	roleMiddleware := middlewares.NewRoleMiddleware(s.db)
-	// Schedule Log is visible to everyone except Customer — same gate as
+	// Prompts Log is visible to everyone except Customer — same gate as
 	// Workspaces/API Keys.
 	logViewers := roleMiddleware.RequireRole(permission.Admin, permission.TeamLead, permission.Specialist)
 
@@ -116,7 +116,7 @@ func (s *ginServer) initPromptRouter() {
 	router.POST("/:id/run", runHandler.Run)
 	router.GET("/:id/runs", runHandler.GetHistory)
 
-	// Schedule Log — every prompt run attempt (scheduled or manual), success
+	// Prompts Log — every prompt run attempt (scheduled or manual), success
 	// or failure, across the whole company.
 	router.GET("/run-logs", companyMiddleware.OwnerByQuery, logViewers, runHandler.GetRunLogs)
 
