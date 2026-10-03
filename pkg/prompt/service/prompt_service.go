@@ -127,7 +127,7 @@ func (s promptService) Create(req CreatePromptRequest) (*PromptResponse, error) 
 	// instead of waiting for the next scheduled sweep. A full multi-engine
 	// run can take 10-30s, so this must not block the HTTP response.
 	go func() {
-		if _, err := s.promptRunService.RunSystem(id); err != nil {
+		if _, err := s.promptRunService.RunSystem(id, promptRunService.TriggerManual); err != nil {
 			logs.Error(fmt.Errorf("auto first-run failed for prompt %d: %w", id, err))
 		}
 	}()

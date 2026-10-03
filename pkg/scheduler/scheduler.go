@@ -66,7 +66,7 @@ func (s *Scheduler) runAll() {
 
 	ran, failed := 0, 0
 	for i, p := range prompts {
-		if _, err := s.promptRunService.RunSystem(p.Id); err != nil {
+		if _, err := s.promptRunService.RunSystem(p.Id, service.TriggerScheduled); err != nil {
 			logs.Error(fmt.Errorf("scheduler: run failed for prompt %d: %w", p.Id, err))
 			failed++
 		} else {

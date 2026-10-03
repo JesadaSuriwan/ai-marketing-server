@@ -164,6 +164,30 @@ CREATE TABLE IF NOT EXISTS prompt_runs (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- One row per (prompt, engine) attempt, success or failure, whoever
+-- triggered it (the nightly scheduler, a manual "Run Prompt"/"Run all", or
+-- an auto first-run on create/approve) — prompt_runs above only ever
+-- recorded successes, so a failed call left no queryable trace anywhere
+-- except raw server logs. prompt_id/tag_id are ON DELETE SET NULL with
+-- prompt_title/country snapshotted at run time, so the log stays meaningful
+-- even after the source prompt or tag is later deleted.
+CREATE TABLE IF NOT EXISTS prompt_run_logs (
+    id SERIAL PRIMARY KEY,
+    company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    prompt_id INT REFERENCES prompts(id) ON DELETE SET NULL,
+    prompt_title TEXT NOT NULL,
+    tag_id INT REFERENCES prompt_categories(id) ON DELETE SET NULL,
+    country TEXT NOT NULL DEFAULT '',
+    ai_platform TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    error_message TEXT,
+    trigger_type TEXT NOT NULL DEFAULT 'manual',
+    duration_ms INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS prompt_run_logs_company_created_idx ON prompt_run_logs (company_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS prompt_suggestions (
     id SERIAL PRIMARY KEY,
     company_id INT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

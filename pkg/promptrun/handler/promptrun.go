@@ -48,3 +48,25 @@ func (h promptRunHandler) GetHistory(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+func (h promptRunHandler) GetRunLogs(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+
+	filters := service.RunLogFilters{
+		From:      c.Query("from"),
+		To:        c.Query("to"),
+		Engines:   c.Query("engines"),
+		TagIds:    c.Query("tag_ids"),
+		Countries: c.Query("countries"),
+	}
+	result, err := h.promptRunService.GetRunLogs(companyId, filters)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}

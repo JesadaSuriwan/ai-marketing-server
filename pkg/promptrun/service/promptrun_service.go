@@ -154,11 +154,11 @@ func (s promptRunService) Run(promptId, userId int) (*PromptRunListResponse, err
 	if err := s.verifyOwnership(promptId, userId); err != nil {
 		return nil, err
 	}
-	return s.run(promptId)
+	return s.run(promptId, TriggerManual)
 }
 
-func (s promptRunService) RunSystem(promptId int) (*PromptRunListResponse, error) {
-	return s.run(promptId)
+func (s promptRunService) RunSystem(promptId int, triggerType string) (*PromptRunListResponse, error) {
+	return s.run(promptId, triggerType)
 }
 
 // run fans out the prompt across every configured engine (e.g. ChatGPT and
@@ -171,7 +171,19 @@ func promptCountry(countries string) string {
 	return strings.ToUpper(strings.TrimSpace(code))
 }
 
-func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
+// logRun is best-effort — a failure to write the log row shouldn't fail (or
+// even be noticed by) the actual prompt run, just get noted server-side.
+func (s promptRunService) logRun(companyId, promptId int, promptTitle string, tagId *int, country, platform, model, status, triggerType string, errMsg *string, durationMs int) {
+	err := s.promptRunRepository.CreateRunLog(repository.CreateRunLogParams{
+		CompanyId: companyId, PromptId: promptId, PromptTitle: promptTitle, TagId: tagId, Country: country,
+		AiPlatform: platform, Model: model, Status: status, ErrorMessage: errMsg, TriggerType: triggerType, DurationMs: durationMs,
+	})
+	if err != nil {
+		logs.Error(fmt.Errorf("failed to write prompt_run_logs row for prompt %d (%s): %w", promptId, platform, err))
+	}
+}
+
+func (s promptRunService) run(promptId int, triggerType string) (*PromptRunListResponse, error) {
 	prompt, err := s.promptRepository.GetById(promptId)
 	if err != nil {
 		return nil, errs.NewNotFoundError("prompt not found")
@@ -202,11 +214,16 @@ func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
 		return nil, errs.NewBadRequestError("no AI engines are enabled for this company — turn at least one on in AI Setting")
 	}
 
+	country := promptCountry(prompt.Countries)
 	data := []PromptRunData{}
 	for _, eng := range engines {
-		response, model, citations, tokenUsage, err := eng.Provider.Complete(prompt.Content, promptCountry(prompt.Countries))
+		start := time.Now()
+		response, model, citations, tokenUsage, err := eng.Provider.Complete(prompt.Content, country)
+		durationMs := int(time.Since(start).Milliseconds())
 		if err != nil {
 			logs.Error(fmt.Errorf("%s run failed for prompt %d: %w", eng.Platform, promptId, err))
+			errMsg := err.Error()
+			s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusFailure, triggerType, &errMsg, durationMs)
 			continue
 		}
 
@@ -217,8 +234,12 @@ func (s promptRunService) run(promptId int) (*PromptRunListResponse, error) {
 		run, err := s.promptRunRepository.Create(promptId, eng.Platform, model, response)
 		if err != nil {
 			logs.Error(err)
+			errMsg := err.Error()
+			s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusFailure, triggerType, &errMsg, durationMs)
 			continue
 		}
+
+		s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusSuccess, triggerType, nil, durationMs)
 
 		// Extraction is best-effort: the raw response is already saved, so a
 		// failure here shouldn't fail the whole run — just log and move on.
@@ -604,7 +625,7 @@ func (s promptRunService) RunAllForCompany(companyId int) (*RunAllResponse, erro
 		if !p.Active {
 			continue
 		}
-		if _, err := s.run(p.Id); err != nil {
+		if _, err := s.run(p.Id, TriggerManual); err != nil {
 			logs.Error(fmt.Errorf("scheduled run failed for prompt %d: %w", p.Id, err))
 			failed++
 		} else {
@@ -616,4 +637,25 @@ func (s promptRunService) RunAllForCompany(companyId int) (*RunAllResponse, erro
 	}
 
 	return &RunAllResponse{Status: true, Desc: "Run all completed", Ran: ran, Failed: failed}, nil
+}
+
+func (s promptRunService) GetRunLogs(companyId int, filters RunLogFilters) (*RunLogsResponse, error) {
+	rows, err := s.promptRunRepository.GetRunLogs(companyId, repository.RunLogFilters{
+		From: filters.From, To: filters.To,
+		Engines: filters.Engines, TagIds: filters.TagIds, Countries: filters.Countries,
+	})
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	data := []RunLogData{}
+	for _, r := range rows {
+		data = append(data, RunLogData{
+			Id: r.Id, PromptId: r.PromptId, PromptTitle: r.PromptTitle, TagId: r.TagId, TagName: r.TagName,
+			Country: r.Country, AiPlatform: r.AiPlatform, Model: r.Model, Status: r.Status,
+			ErrorMessage: r.ErrorMessage, TriggerType: r.TriggerType, DurationMs: r.DurationMs, CreatedAt: r.CreatedAt,
+		})
+	}
+	return &RunLogsResponse{Status: true, Desc: "Get run logs successful", Data: data}, nil
 }

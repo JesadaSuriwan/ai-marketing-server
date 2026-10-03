@@ -368,7 +368,7 @@ func (s promptSuggestionService) UpdateStatus(id, userId int, status, countryCod
 	if createdPromptId != nil {
 		promptId := *createdPromptId
 		go func() {
-			if _, err := s.promptRunService.RunSystem(promptId); err != nil {
+			if _, err := s.promptRunService.RunSystem(promptId, promptRunService.TriggerManual); err != nil {
 				logs.Error(fmt.Errorf("auto first-run failed for prompt %d: %w", promptId, err))
 			}
 		}()

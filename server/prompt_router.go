@@ -11,6 +11,7 @@ import (
 	brandCandidateRepository "github.com/ai-marketing/ai-marketing-server/pkg/brandcandidate/repository"
 	citationRepository "github.com/ai-marketing/ai-marketing-server/pkg/citation/repository"
 	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
+	"github.com/ai-marketing/ai-marketing-server/pkg/permission"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/handler"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/service"
@@ -94,6 +95,10 @@ func (s *ginServer) initPromptRouter() {
 
 	authMiddleware := middlewares.NewAuthMiddleware()
 	companyMiddleware := middlewares.NewCompanyMiddleware(s.db)
+	roleMiddleware := middlewares.NewRoleMiddleware(s.db)
+	// Schedule Log is visible to everyone except Customer — same gate as
+	// Workspaces/API Keys.
+	logViewers := roleMiddleware.RequireRole(permission.Admin, permission.TeamLead, permission.Specialist)
 
 	router := s.app.Group("/prompt")
 	router.Use(authMiddleware.AuthRequired)
@@ -110,6 +115,10 @@ func (s *ginServer) initPromptRouter() {
 	// Run routes: ownership verified inside service via BelongsToUser
 	router.POST("/:id/run", runHandler.Run)
 	router.GET("/:id/runs", runHandler.GetHistory)
+
+	// Schedule Log — every prompt run attempt (scheduled or manual), success
+	// or failure, across the whole company.
+	router.GET("/run-logs", companyMiddleware.OwnerByQuery, logViewers, runHandler.GetRunLogs)
 
 	// Manual "run all my prompts now" — same pipeline the scheduler uses,
 	// triggerable on demand instead of waiting for the next cron tick.
