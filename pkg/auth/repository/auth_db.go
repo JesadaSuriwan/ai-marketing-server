@@ -1,6 +1,18 @@
 package repository
 
-import "github.com/jmoiron/sqlx"
+import (
+	"strings"
+
+	"github.com/jmoiron/sqlx"
+)
+
+// normalizeEmail makes email lookups/writes case-insensitive — "Harry@x.com"
+// and "harry@x.com" are the same account. Applied at this single layer so
+// every call site (Register, Login, member invite) gets it automatically
+// without having to remember to normalize themselves.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
 
 type authRepositoryDB struct {
 	db *sqlx.DB
@@ -17,7 +29,7 @@ func (r authRepositoryDB) NewTransaction() (*sqlx.Tx, error) {
 func (r authRepositoryDB) CreateUser(tx *sqlx.Tx, u User) (int, error) {
 	var id int
 	query := `INSERT INTO users (email, password, name, initials, must_change_password, encrypted_password) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
-	err := tx.QueryRowx(query, u.Email, u.Password, u.Name, u.Initials, u.MustChangePassword, u.EncryptedPassword).Scan(&id)
+	err := tx.QueryRowx(query, normalizeEmail(u.Email), u.Password, u.Name, u.Initials, u.MustChangePassword, u.EncryptedPassword).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -27,7 +39,7 @@ func (r authRepositoryDB) CreateUser(tx *sqlx.Tx, u User) (int, error) {
 func (r authRepositoryDB) GetUserByEmail(email string) (*User, error) {
 	user := User{}
 	query := `SELECT id, email, password, name, initials, must_change_password, encrypted_password, created_at, updated_at FROM users WHERE email = $1`
-	err := r.db.Get(&user, query, email)
+	err := r.db.Get(&user, query, normalizeEmail(email))
 	if err != nil {
 		return nil, err
 	}

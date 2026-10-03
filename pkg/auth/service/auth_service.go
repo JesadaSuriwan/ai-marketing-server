@@ -1,6 +1,8 @@
 package service
 
 import (
+	"strings"
+
 	"github.com/ai-marketing/ai-marketing-server/constants"
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/logs"
@@ -21,6 +23,12 @@ func NewAuthService(authRepository repository.AuthRepository, encryptionKey stri
 }
 
 func (s authService) Register(req RegisterRequest) (*AuthResponse, string, error) {
+	// authRepository normalizes internally too, but doing it here as well
+	// keeps req.Email (used below in the token and response) consistent with
+	// what's actually stored, rather than echoing back whatever casing the
+	// caller happened to type.
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	existing, _ := s.authRepository.GetUserByEmail(req.Email)
 	if existing != nil {
 		return nil, "", errs.NewBadRequestError("email already registered")

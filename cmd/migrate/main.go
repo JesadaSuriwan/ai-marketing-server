@@ -451,6 +451,17 @@ CREATE TABLE IF NOT EXISTS api_usage_log (
     cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Login is now case-insensitive (pkg/auth/repository/auth_db.go normalizes
+-- every read/write going forward) — backfill existing rows to match so a
+-- pre-existing "Harry@x.com" row still matches a "harry@x.com" login. The
+-- users.email UNIQUE constraint means this intentionally fails loudly (and
+-- rolls back, since this whole file runs as one implicit transaction) if two
+-- rows are already case-variant duplicates of the same address — that needs
+-- a human decision (which account to keep) before this can proceed, not a
+-- silent auto-merge.
+UPDATE users SET email = LOWER(TRIM(email)) WHERE email <> LOWER(TRIM(email));
+UPDATE company_members SET email = LOWER(TRIM(email)) WHERE email <> LOWER(TRIM(email));
 `
 
 func main() {

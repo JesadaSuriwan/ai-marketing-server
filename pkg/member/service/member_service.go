@@ -75,6 +75,11 @@ func (s memberService) Create(req CreateMemberRequest) (*CreateMemberResponse, e
 		return nil, errs.NewNotFoundError("company not found")
 	}
 
+	// Normalized here (not just inside authRepository.GetUserByEmail) because
+	// this value also gets written straight to company_members.email below,
+	// which isn't covered by that repository's own normalization.
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	role := strings.ToLower(strings.TrimSpace(req.Role))
 	if role == "" {
 		role = permission.Specialist
