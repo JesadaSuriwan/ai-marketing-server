@@ -19,9 +19,22 @@ type Scheduler struct {
 	promptRepository repository.PromptRepository
 }
 
+// bangkokLocation pins the schedule to Thailand time regardless of the
+// host's own system timezone (e.g. a UTC-configured VPS), so cron_expression
+// in config always means "that time in Bangkok" rather than silently
+// depending on wherever this happens to be deployed.
+var bangkokLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		logs.Error(fmt.Errorf("scheduler: failed to load Asia/Bangkok location, falling back to UTC: %w", err))
+		return time.UTC
+	}
+	return loc
+}()
+
 func New(promptRunService service.PromptRunService, promptRepository repository.PromptRepository) *Scheduler {
 	return &Scheduler{
-		cron:             cron.New(),
+		cron:             cron.New(cron.WithLocation(bangkokLocation)),
 		promptRunService: promptRunService,
 		promptRepository: promptRepository,
 	}
@@ -34,7 +47,7 @@ func (s *Scheduler) Start(cronExpr string) error {
 		return err
 	}
 	s.cron.Start()
-	logs.Info("Scheduler started, cron_expression=" + cronExpr)
+	logs.Info("Scheduler started, cron_expression=" + cronExpr + " (Asia/Bangkok)")
 	return nil
 }
 
