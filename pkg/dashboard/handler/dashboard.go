@@ -172,7 +172,8 @@ func (h dashboardHandler) GetPromptsOverview(c *gin.Context) {
 	}
 	from := c.Query("from")
 	to := c.Query("to")
-	result, err := h.dashboardService.GetPromptsOverview(companyId, from, to)
+	engines := c.Query("engines")
+	result, err := h.dashboardService.GetPromptsOverview(companyId, from, to, engines)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -188,10 +189,10 @@ func (h dashboardHandler) GetBrandRanking(c *gin.Context) {
 	}
 	from := c.Query("from")
 	to := c.Query("to")
-	engine := c.Query("engine")
-	country := c.Query("country")
-	tagId, _ := strconv.Atoi(c.Query("tag_id"))
-	result, err := h.dashboardService.GetBrandRanking(companyId, from, to, engine, tagId, country)
+	engines := c.Query("engines")
+	countries := c.Query("countries")
+	tagIds := c.Query("tag_ids")
+	result, err := h.dashboardService.GetBrandRanking(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -207,10 +208,10 @@ func (h dashboardHandler) GetBrandCoverageTrend(c *gin.Context) {
 	}
 	from := c.Query("from")
 	to := c.Query("to")
-	engine := c.Query("engine")
-	country := c.Query("country")
-	tagId, _ := strconv.Atoi(c.Query("tag_id"))
-	result, err := h.dashboardService.GetBrandCoverageTrend(companyId, from, to, engine, tagId, country)
+	engines := c.Query("engines")
+	countries := c.Query("countries")
+	tagIds := c.Query("tag_ids")
+	result, err := h.dashboardService.GetBrandCoverageTrend(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

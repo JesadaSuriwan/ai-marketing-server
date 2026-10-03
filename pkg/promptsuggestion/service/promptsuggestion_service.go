@@ -128,7 +128,7 @@ func (s promptSuggestionService) buildContext(companyId int, seed string) (strin
 	}
 	b.WriteString("\n")
 
-	overview, err := s.dashboardRepository.GetPromptsOverview(companyId, "", "")
+	overview, err := s.dashboardRepository.GetPromptsOverview(companyId, "", "", "")
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +139,7 @@ func (s promptSuggestionService) buildContext(companyId int, seed string) (strin
 	}
 	b.WriteString("\n")
 
-	ranking, err := s.dashboardRepository.GetBrandRanking(companyId, "", "", "", 0, "")
+	ranking, err := s.dashboardRepository.GetBrandRanking(companyId, "", "", "", "", "")
 	if err != nil {
 		return "", err
 	}

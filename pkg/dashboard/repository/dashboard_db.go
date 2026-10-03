@@ -196,7 +196,12 @@ func (r dashboardRepositoryDB) GetPromptRankings(promptId, companyId int, from, 
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to string) ([]PromptOverview, error) {
+// engines is a comma-separated list of ai_platform values (e.g.
+// "chatgpt,gemini") — empty string means no filter, same convention as every
+// other filter param in this file. Scopes every aggregate column (mentions,
+// sentiment, coverage, domain citations, competitors) to only citations from
+// the selected engine(s), not just which rows appear.
+func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to, engines string) ([]PromptOverview, error) {
 	list := []PromptOverview{}
 	query := `
 		WITH own_brand_id AS (
@@ -229,6 +234,7 @@ func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to string
 				   AND b2.company_id = $1
 				   AND ($2 = '' OR c2.last_checked >= $2::date)
 				   AND ($3 = '' OR c2.last_checked <= $3::date)
+				   AND ($4 = '' OR c2.ai_platform = ANY(string_to_array($4, ',')))
 				),
 				''
 			) AS competitors,
@@ -243,12 +249,13 @@ func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to string
 		LEFT JOIN citations c ON c.prompt_id = p.id
 			AND ($2 = '' OR c.last_checked >= $2::date)
 			AND ($3 = '' OR c.last_checked <= $3::date)
+			AND ($4 = '' OR c.ai_platform = ANY(string_to_array($4, ',')))
 		LEFT JOIN prompt_categories pc ON pc.id = p.tag_id
 		WHERE p.company_id = $1
 		GROUP BY p.id, p.title, ob.id, pc.name, p.active
 		ORDER BY brand_mentions DESC, p.id ASC
 	`
-	err := r.db.Select(&list, query, companyId, from, to)
+	err := r.db.Select(&list, query, companyId, from, to, engines)
 	return list, err
 }
 
@@ -259,9 +266,10 @@ func (r dashboardRepositoryDB) GetPromptsOverview(companyId int, from, to string
 // right next to it already respected those filters. That meant "Your Brand
 // Mentions" and "Your Average Brand Position" silently never changed when
 // someone changed the date range, even though they sit directly beside a
-// chart that visibly does. Empty string/0 for any filter means "no filter
-// on this dimension", same convention as GetBrandCoverageTrend.
-func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engine string, tagId int, country string) ([]BrandRankingRow, error) {
+// chart that visibly does. engine/tagIds/country are comma-separated lists
+// (e.g. "chatgpt,gemini" / "3,5") — empty string means no filter on that
+// dimension, same convention used throughout this file.
+func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engines, tagIds, countries string) ([]BrandRankingRow, error) {
 	list := []BrandRankingRow{}
 	query := `
 		WITH filtered_prompts AS (
@@ -269,8 +277,8 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engine s
 			FROM prompts p
 			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
 			WHERE p.company_id = $1
-			  AND ($5 = 0 OR p.tag_id = $5)
-			  AND ($6 = '' OR pco.country_code = $6)
+			  AND ($5 = '' OR p.tag_id = ANY(string_to_array($5, ',')::int[]))
+			  AND ($6 = '' OR pco.country_code = ANY(string_to_array($6, ',')))
 		),
 		company_citations AS (
 			SELECT c.brand_id, c.prompt_id, c.ranking, c.sentiment
@@ -278,7 +286,7 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engine s
 			JOIN filtered_prompts fp ON fp.id = c.prompt_id
 			WHERE ($2 = '' OR c.last_checked >= $2::date)
 			  AND ($3 = '' OR c.last_checked <= $3::date)
-			  AND ($4 = '' OR c.ai_platform = $4)
+			  AND ($4 = '' OR c.ai_platform = ANY(string_to_array($4, ',')))
 		),
 		brand_stats AS (
 			SELECT
@@ -311,7 +319,7 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engine s
 		ORDER BY bs.mentions DESC
 		LIMIT 20
 	`
-	err := r.db.Select(&list, query, companyId, from, to, engine, tagId, country)
+	err := r.db.Select(&list, query, companyId, from, to, engines, tagIds, countries)
 	return list, err
 }
 
@@ -322,7 +330,9 @@ func (r dashboardRepositoryDB) GetBrandRanking(companyId int, from, to, engine s
 // "tracked") uses each prompt's CURRENT tag/country, not what it was on that
 // historical day — the same simplification other historical reports in this
 // app already make, and unavoidable since tag/country aren't versioned.
-func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) ([]BrandCoverageTrendRow, error) {
+// engines/tagIds/countries are comma-separated lists — empty string means
+// no filter on that dimension, same convention as GetBrandRanking.
+func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, engines, tagIds, countries string) ([]BrandCoverageTrendRow, error) {
 	list := []BrandCoverageTrendRow{}
 	query := `
 		WITH filtered_prompts AS (
@@ -330,8 +340,8 @@ func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, en
 			FROM prompts p
 			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
 			WHERE p.company_id = $1
-			  AND ($4 = 0 OR p.tag_id = $4)
-			  AND ($5 = '' OR pco.country_code = $5)
+			  AND ($4 = '' OR p.tag_id = ANY(string_to_array($4, ',')::int[]))
+			  AND ($5 = '' OR pco.country_code = ANY(string_to_array($5, ',')))
 		),
 		total AS (SELECT COUNT(*) AS n FROM filtered_prompts)
 		SELECT bpcd.brand_id,
@@ -342,11 +352,11 @@ func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, en
 		JOIN filtered_prompts fp ON fp.id = bpcd.prompt_id
 		WHERE ($2 = '' OR bpcd.stat_date >= $2::date)
 		  AND ($3 = '' OR bpcd.stat_date <= $3::date)
-		  AND ($6 = '' OR bpcd.engine = $6)
+		  AND ($6 = '' OR bpcd.engine = ANY(string_to_array($6, ',')))
 		GROUP BY bpcd.brand_id, bpcd.stat_date
 		ORDER BY bpcd.stat_date ASC
 	`
-	err := r.db.Select(&list, query, companyId, from, to, tagId, country, engine)
+	err := r.db.Select(&list, query, companyId, from, to, tagIds, countries, engines)
 	return list, err
 }
 

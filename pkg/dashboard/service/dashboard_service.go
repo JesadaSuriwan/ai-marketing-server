@@ -159,8 +159,8 @@ func (s dashboardService) GetPromptRankings(promptId, companyId int, from, to st
 	return &PromptRankingsResponse{Status: true, Desc: "Get prompt rankings successful", Data: data}, nil
 }
 
-func (s dashboardService) GetPromptsOverview(companyId int, from, to string) (*PromptsOverviewResponse, error) {
-	rows, err := s.dashboardRepository.GetPromptsOverview(companyId, from, to)
+func (s dashboardService) GetPromptsOverview(companyId int, from, to, engines string) (*PromptsOverviewResponse, error) {
+	rows, err := s.dashboardRepository.GetPromptsOverview(companyId, from, to, engines)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -178,8 +178,8 @@ func (s dashboardService) GetPromptsOverview(companyId int, from, to string) (*P
 	return &PromptsOverviewResponse{Status: true, Desc: "Get prompts overview successful", Data: data}, nil
 }
 
-func (s dashboardService) GetBrandRanking(companyId int, from, to, engine string, tagId int, country string) (*BrandRankingResponse, error) {
-	rows, err := s.dashboardRepository.GetBrandRanking(companyId, from, to, engine, tagId, country)
+func (s dashboardService) GetBrandRanking(companyId int, from, to, engines, tagIds, countries string) (*BrandRankingResponse, error) {
+	rows, err := s.dashboardRepository.GetBrandRanking(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -195,8 +195,8 @@ func (s dashboardService) GetBrandRanking(companyId int, from, to, engine string
 	return &BrandRankingResponse{Status: true, Desc: "Get brand ranking successful", Data: data}, nil
 }
 
-func (s dashboardService) GetBrandCoverageTrend(companyId int, from, to, engine string, tagId int, country string) (*BrandCoverageTrendResponse, error) {
-	rows, err := s.dashboardRepository.GetBrandCoverageTrend(companyId, from, to, engine, tagId, country)
+func (s dashboardService) GetBrandCoverageTrend(companyId int, from, to, engines, tagIds, countries string) (*BrandCoverageTrendResponse, error) {
+	rows, err := s.dashboardRepository.GetBrandCoverageTrend(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()

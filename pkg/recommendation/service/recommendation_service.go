@@ -247,7 +247,7 @@ func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[
 	}
 	sort.Slice(editorialGaps, func(i, j int) bool { return editorialGaps[i].Impact == "high" && editorialGaps[j].Impact != "high" })
 
-	overview, err := s.dashboardRepository.GetPromptsOverview(companyId, "", "")
+	overview, err := s.dashboardRepository.GetPromptsOverview(companyId, "", "", "")
 	if err != nil {
 		return nil, nil, err
 	}
