@@ -43,7 +43,8 @@ func (r promptRunRepositoryDB) GetRunLogs(companyId int, f RunLogFilters) ([]Pro
 	query := `
 		SELECT
 			l.id, l.company_id, l.prompt_id, l.prompt_title, l.tag_id, pc.name AS tag_name,
-			l.country, l.ai_platform, l.model, l.status, l.error_message, l.trigger_type, l.duration_ms, l.created_at
+			l.country, l.ai_platform, l.model, l.status, l.error_message, l.trigger_type, l.duration_ms,
+			to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') || '+07:00' AS created_at
 		FROM prompt_run_logs l
 		LEFT JOIN prompt_categories pc ON pc.id = l.tag_id
 		WHERE l.company_id = $1
