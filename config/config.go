@@ -64,6 +64,14 @@ type (
 		ExtractionModel       string `mapstructure:"extraction_model"`
 		PromptSuggestionModel string `mapstructure:"prompt_suggestion_model"`
 		RecommendationModel   string `mapstructure:"recommendation_model"`
+		// MemberPasswordEncryptionKey is a dedicated AES-256 key (32 raw bytes,
+		// base64-encoded) used only to store a reversible copy of a Customer
+		// role member's password, so an Admin/Team Lead can view/reset it on
+		// demand. Deliberately separate from SecretKey (JWT signing) — a leak
+		// of one doesn't also compromise the other. The actual login check
+		// still goes through the normal bcrypt hash, untouched by this;
+		// this key only backs the admin-facing view/edit convenience feature.
+		MemberPasswordEncryptionKey string `mapstructure:"member_password_encryption_key"`
 	}
 
 	Scheduler struct {
@@ -102,6 +110,7 @@ func GetConfig() *Config {
 		viper.BindEnv("env.extraction_model", "EXTRACTION_MODEL")
 		viper.BindEnv("env.prompt_suggestion_model", "PROMPT_SUGGESTION_MODEL")
 		viper.BindEnv("env.recommendation_model", "RECOMMENDATION_MODEL")
+		viper.BindEnv("env.member_password_encryption_key", "MEMBER_PASSWORD_ENCRYPTION_KEY")
 		viper.SetDefault("env.claude_engine_model", "claude-sonnet-5")
 		viper.SetDefault("env.extraction_model", "claude-haiku-4-5-20251001")
 		viper.SetDefault("env.prompt_suggestion_model", "claude-sonnet-5")

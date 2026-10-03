@@ -16,8 +16,8 @@ func (r authRepositoryDB) NewTransaction() (*sqlx.Tx, error) {
 
 func (r authRepositoryDB) CreateUser(tx *sqlx.Tx, u User) (int, error) {
 	var id int
-	query := `INSERT INTO users (email, password, name, initials, must_change_password) VALUES ($1, $2, $3, $4, $5) RETURNING id`
-	err := tx.QueryRowx(query, u.Email, u.Password, u.Name, u.Initials, u.MustChangePassword).Scan(&id)
+	query := `INSERT INTO users (email, password, name, initials, must_change_password, encrypted_password) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	err := tx.QueryRowx(query, u.Email, u.Password, u.Name, u.Initials, u.MustChangePassword, u.EncryptedPassword).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -26,7 +26,7 @@ func (r authRepositoryDB) CreateUser(tx *sqlx.Tx, u User) (int, error) {
 
 func (r authRepositoryDB) GetUserByEmail(email string) (*User, error) {
 	user := User{}
-	query := `SELECT id, email, password, name, initials, must_change_password, created_at, updated_at FROM users WHERE email = $1`
+	query := `SELECT id, email, password, name, initials, must_change_password, encrypted_password, created_at, updated_at FROM users WHERE email = $1`
 	err := r.db.Get(&user, query, email)
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func (r authRepositoryDB) GetUserByEmail(email string) (*User, error) {
 
 func (r authRepositoryDB) GetUserById(id int) (*User, error) {
 	user := User{}
-	query := `SELECT id, email, password, name, initials, must_change_password, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, email, password, name, initials, must_change_password, encrypted_password, created_at, updated_at FROM users WHERE id = $1`
 	err := r.db.Get(&user, query, id)
 	if err != nil {
 		return nil, err
@@ -49,5 +49,10 @@ func (r authRepositoryDB) UpdatePassword(tx *sqlx.Tx, userId int, hashedPassword
 		`UPDATE users SET password = $1, must_change_password = FALSE, updated_at = NOW() WHERE id = $2`,
 		hashedPassword, userId,
 	)
+	return err
+}
+
+func (r authRepositoryDB) UpdateEncryptedPassword(tx *sqlx.Tx, userId int, encryptedPassword string) error {
+	_, err := tx.Exec(`UPDATE users SET encrypted_password = $1 WHERE id = $2`, encryptedPassword, userId)
 	return err
 }

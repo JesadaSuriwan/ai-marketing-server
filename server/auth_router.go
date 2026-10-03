@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/ai-marketing/ai-marketing-server/config"
 	"github.com/ai-marketing/ai-marketing-server/middlewares"
 	"github.com/ai-marketing/ai-marketing-server/pkg/auth/handler"
 	"github.com/ai-marketing/ai-marketing-server/pkg/auth/repository"
@@ -9,7 +10,7 @@ import (
 
 func (s *ginServer) initAuthRouter() {
 	authRepository := repository.NewAuthRepositoryDB(s.db)
-	authService := service.NewAuthService(authRepository)
+	authService := service.NewAuthService(authRepository, config.GetConfig().Env.MemberPasswordEncryptionKey)
 	authHandler := handler.NewAuthHandler(authService)
 
 	authMiddleware := middlewares.NewAuthMiddleware()

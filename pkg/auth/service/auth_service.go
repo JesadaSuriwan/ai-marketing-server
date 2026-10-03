@@ -10,10 +10,14 @@ import (
 
 type authService struct {
 	authRepository repository.AuthRepository
+	// encryptionKey backs re-syncing a Customer role member's admin-viewable
+	// password copy whenever they change their own password — see
+	// ChangePassword below and utils.EncryptPassword for why this exists.
+	encryptionKey string
 }
 
-func NewAuthService(authRepository repository.AuthRepository) AuthService {
-	return authService{authRepository}
+func NewAuthService(authRepository repository.AuthRepository, encryptionKey string) AuthService {
+	return authService{authRepository, encryptionKey}
 }
 
 func (s authService) Register(req RegisterRequest) (*AuthResponse, string, error) {
@@ -156,6 +160,25 @@ func (s authService) ChangePassword(userId int, req ChangePasswordRequest) (*Sim
 	if err = s.authRepository.UpdatePassword(tx, userId, hashed); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
+	}
+
+	// Only re-sync the admin-viewable copy if this account already had one —
+	// i.e. only Customer role members, who are the only accounts this ever
+	// gets set for in the first place. A regular team member calling this
+	// endpoint never starts having their password encrypted/stored; nil
+	// stays nil.
+	if user.EncryptedPassword != nil {
+		if encrypted, encErr := utils.EncryptPassword(req.NewPassword, s.encryptionKey); encErr == nil {
+			if err = s.authRepository.UpdateEncryptedPassword(tx, userId, encrypted); err != nil {
+				logs.Error(err)
+				return nil, errs.NewUnexpectedError()
+			}
+		} else {
+			// Key not configured or otherwise broken — don't block the user
+			// from changing their own password over a feature they don't
+			// know exists; just log it so it's visible to us.
+			logs.Error(encErr)
+		}
 	}
 
 	if err = tx.Commit(); err != nil {

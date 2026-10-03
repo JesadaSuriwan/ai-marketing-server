@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS users (
 -- adding a member) so the frontend can force a real password to be chosen
 -- before letting the user do anything else.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+-- A reversible (AES-256-GCM, see utils.EncryptPassword) copy of this user's
+-- password — NULL for everyone except Customer role members, whose
+-- credentials an Admin/Team Lead can view/reset on demand. The actual login
+-- check always uses the password column's bcrypt hash above; this column
+-- backs only that one admin-facing feature and is kept in sync with it
+-- whenever the password changes, by whichever path changed it.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS encrypted_password TEXT;
 
 CREATE TABLE IF NOT EXISTS companies (
     id SERIAL PRIMARY KEY,

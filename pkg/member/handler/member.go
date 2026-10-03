@@ -48,6 +48,41 @@ func (h memberHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, result)
 }
 
+func (h memberHandler) SetPassword(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid id"))
+		return
+	}
+	req := service.SetMemberPasswordRequest{}
+	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
+		errs.HandleError(c, errs.NewBadRequestError(err.Error()))
+		return
+	}
+	userId := c.GetInt("userId")
+	result, err := h.memberService.SetPassword(id, userId, req)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h memberHandler) GetPassword(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid id"))
+		return
+	}
+	userId := c.GetInt("userId")
+	result, err := h.memberService.GetPassword(id, userId)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h memberHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

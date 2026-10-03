@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/ai-marketing/ai-marketing-server/config"
 	"github.com/ai-marketing/ai-marketing-server/middlewares"
 	authRepository "github.com/ai-marketing/ai-marketing-server/pkg/auth/repository"
 	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
@@ -14,7 +15,7 @@ func (s *ginServer) initMemberRouter() {
 	memberRepository := repository.NewMemberRepositoryDB(s.db)
 	authRepo := authRepository.NewAuthRepositoryDB(s.db)
 	companyRepo := companyRepository.NewCompanyRepositoryDB(s.db)
-	memberService := service.NewMemberService(memberRepository, authRepo, companyRepo, s.db)
+	memberService := service.NewMemberService(memberRepository, authRepo, companyRepo, s.db, config.GetConfig().Env.MemberPasswordEncryptionKey)
 	memberHandler := handler.NewMemberHandler(memberService)
 
 	authMiddleware := middlewares.NewAuthMiddleware()
@@ -32,4 +33,9 @@ func (s *ginServer) initMemberRouter() {
 	authed.POST("", companyMiddleware.OwnerByBodyCompanyId, roleMiddleware.RequireRole(permission.Admin, permission.TeamLead), memberHandler.Create)
 	// Delete: the removal permission matrix (who-can-remove-whom) is checked inside the service.
 	authed.DELETE("/:id", memberHandler.Delete)
+	// Password view/edit: restricted to Customer role targets, checked
+	// inside the service (needs the target's company_id to resolve the
+	// requester's role there, same reason Delete checks internally too).
+	authed.GET("/:id/password", memberHandler.GetPassword)
+	authed.PUT("/:id/password", memberHandler.SetPassword)
 }
