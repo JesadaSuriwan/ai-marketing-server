@@ -48,18 +48,34 @@ func (r dashboardRepositoryDB) GetTopPrompts(companyId int) ([]TopPrompt, error)
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetTopDomains(companyId int) ([]TopDomain, error) {
+// engines/tagIds/countries are comma-separated lists — empty means no
+// filter. Stays a LEFT JOIN (not the filtered_prompts CTE pattern used
+// elsewhere) so a brand with zero matching citations under the current
+// filter still appears with mention_count=0, rather than disappearing from
+// Domain Coverage/Domain Citations entirely — each filter is folded into
+// the JOIN's own ON clause instead of a WHERE so it doesn't turn the LEFT
+// JOIN into an inner one.
+func (r dashboardRepositoryDB) GetTopDomains(companyId int, from, to, engines, tagIds, countries string) ([]TopDomain, error) {
 	list := []TopDomain{}
 	query := `
 		SELECT b.domain, COUNT(c.id) as mention_count
 		FROM brands b
 		LEFT JOIN citations c ON c.brand_id = b.id
+			AND ($2 = '' OR c.last_checked >= $2::date)
+			AND ($3 = '' OR c.last_checked <= $3::date)
+			AND ($4 = '' OR c.ai_platform = ANY(string_to_array($4, ',')))
+			AND ($5 = '' OR EXISTS (
+				SELECT 1 FROM prompts pp WHERE pp.id = c.prompt_id AND pp.tag_id = ANY(string_to_array($5, ',')::int[])
+			))
+			AND ($6 = '' OR EXISTS (
+				SELECT 1 FROM prompt_countries pco WHERE pco.prompt_id = c.prompt_id AND pco.country_code = ANY(string_to_array($6, ','))
+			))
 		WHERE b.company_id = $1
 		GROUP BY b.domain
 		ORDER BY mention_count DESC
 		LIMIT 7
 	`
-	err := r.db.Select(&list, query, companyId)
+	err := r.db.Select(&list, query, companyId, from, to, engines, tagIds, countries)
 	return list, err
 }
 
@@ -360,32 +376,63 @@ func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, en
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetTopPromptsByBrand(companyId int) ([]TopPromptByBrand, error) {
+// engines/tagIds/countries are comma-separated lists — empty means no
+// filter, same convention as GetTopCitationURLs. Backs both "Top Prompts by
+// Brand Mentions" and "Top Prompts by Website Citations" (the latter reuses
+// this same ranking rather than computing a distinct one — pre-existing
+// behavior, unchanged here).
+func (r dashboardRepositoryDB) GetTopPromptsByBrand(companyId int, from, to, engines, tagIds, countries string) ([]TopPromptByBrand, error) {
 	list := []TopPromptByBrand{}
 	query := `
-		SELECT p.id AS prompt_id, p.title, COUNT(c.id)::INT AS my_brand_mentions
-		FROM prompts p
-		JOIN citations c ON c.prompt_id = p.id
+		WITH filtered_prompts AS (
+			SELECT DISTINCT p.id, p.title
+			FROM prompts p
+			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
+			WHERE p.company_id = $1
+			  AND ($5 = '' OR p.tag_id = ANY(string_to_array($5, ',')::int[]))
+			  AND ($6 = '' OR pco.country_code = ANY(string_to_array($6, ',')))
+		)
+		SELECT fp.id AS prompt_id, fp.title, COUNT(c.id)::INT AS my_brand_mentions
+		FROM filtered_prompts fp
+		JOIN citations c ON c.prompt_id = fp.id
 		JOIN brands b ON c.brand_id = b.id
-		WHERE p.company_id = $1
-		  AND b.company_id = $1
+		WHERE b.company_id = $1
 		  AND b.is_own = TRUE
-		GROUP BY p.id, p.title
+		  AND ($2 = '' OR c.last_checked >= $2::date)
+		  AND ($3 = '' OR c.last_checked <= $3::date)
+		  AND ($4 = '' OR c.ai_platform = ANY(string_to_array($4, ',')))
+		GROUP BY fp.id, fp.title
 		ORDER BY my_brand_mentions DESC
 		LIMIT 10
 	`
-	err := r.db.Select(&list, query, companyId)
+	err := r.db.Select(&list, query, companyId, from, to, engines, tagIds, countries)
 	return list, err
 }
 
-func (r dashboardRepositoryDB) GetTopCitationURLs(companyId int) ([]CitationURL, error) {
+// engines/tagIds/countries are comma-separated lists — empty string means no
+// filter on that dimension, same convention as GetBrandRanking. Previously
+// took no filters at all (always every citation ever, regardless of what
+// the Overview filter bar was set to) — this was the one Overview section
+// that silently ignored the filter bar entirely.
+func (r dashboardRepositoryDB) GetTopCitationURLs(companyId int, from, to, engines, tagIds, countries string) ([]CitationURL, error) {
 	list := []CitationURL{}
 	query := `
-		WITH url_counts AS (
+		WITH filtered_prompts AS (
+			SELECT DISTINCT p.id
+			FROM prompts p
+			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
+			WHERE p.company_id = $1
+			  AND ($5 = '' OR p.tag_id = ANY(string_to_array($5, ',')::int[]))
+			  AND ($6 = '' OR pco.country_code = ANY(string_to_array($6, ',')))
+		),
+		url_counts AS (
 			SELECT c.url, COUNT(c.id) AS cnt
 			FROM citations c
-			JOIN prompts p ON c.prompt_id = p.id
-			WHERE p.company_id = $1 AND c.url IS NOT NULL AND c.url != ''
+			JOIN filtered_prompts fp ON fp.id = c.prompt_id
+			WHERE c.url IS NOT NULL AND c.url != ''
+			  AND ($2 = '' OR c.last_checked >= $2::date)
+			  AND ($3 = '' OR c.last_checked <= $3::date)
+			  AND ($4 = '' OR c.ai_platform = ANY(string_to_array($4, ',')))
 			GROUP BY c.url
 		),
 		total AS (SELECT NULLIF(SUM(cnt), 0) AS total FROM url_counts)
@@ -398,7 +445,7 @@ func (r dashboardRepositoryDB) GetTopCitationURLs(companyId int) ([]CitationURL,
 		ORDER BY uc.cnt DESC
 		LIMIT 10
 	`
-	err := r.db.Select(&list, query, companyId)
+	err := r.db.Select(&list, query, companyId, from, to, engines, tagIds, countries)
 	return list, err
 }
 

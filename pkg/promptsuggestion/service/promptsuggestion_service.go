@@ -154,7 +154,7 @@ func (s promptSuggestionService) buildContext(companyId int, seed string) (strin
 	}
 	b.WriteString("\n")
 
-	domains, err := s.dashboardRepository.GetTopDomains(companyId)
+	domains, err := s.dashboardRepository.GetTopDomains(companyId, "", "", "", "", "")
 	if err != nil {
 		return "", err
 	}

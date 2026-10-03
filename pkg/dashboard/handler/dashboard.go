@@ -54,7 +54,12 @@ func (h dashboardHandler) GetTopDomains(c *gin.Context) {
 		return
 	}
 
-	result, err := h.dashboardService.GetTopDomains(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	engines := c.Query("engines")
+	countries := c.Query("countries")
+	tagIds := c.Query("tag_ids")
+	result, err := h.dashboardService.GetTopDomains(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -277,7 +282,12 @@ func (h dashboardHandler) GetTopPromptsByBrand(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetTopPromptsByBrand(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	engines := c.Query("engines")
+	countries := c.Query("countries")
+	tagIds := c.Query("tag_ids")
+	result, err := h.dashboardService.GetTopPromptsByBrand(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -291,7 +301,12 @@ func (h dashboardHandler) GetTopCitationURLs(c *gin.Context) {
 		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
 		return
 	}
-	result, err := h.dashboardService.GetTopCitationURLs(companyId)
+	from := c.Query("from")
+	to := c.Query("to")
+	engines := c.Query("engines")
+	countries := c.Query("countries")
+	tagIds := c.Query("tag_ids")
+	result, err := h.dashboardService.GetTopCitationURLs(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

@@ -51,8 +51,8 @@ func (s dashboardService) GetTopPrompts(companyId int) (*TopPromptsResponse, err
 	return &TopPromptsResponse{Status: true, Desc: "Get top prompts successful", Data: data}, nil
 }
 
-func (s dashboardService) GetTopDomains(companyId int) (*TopDomainsResponse, error) {
-	domains, err := s.dashboardRepository.GetTopDomains(companyId)
+func (s dashboardService) GetTopDomains(companyId int, from, to, engines, tagIds, countries string) (*TopDomainsResponse, error) {
+	domains, err := s.dashboardRepository.GetTopDomains(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -234,8 +234,8 @@ func (s dashboardService) GetPromptBrandCoverageTrend(promptId, companyId int) (
 	return &PromptBrandCoverageTrendResponse{Status: true, Desc: "Get prompt brand coverage trend successful", Data: data}, nil
 }
 
-func (s dashboardService) GetTopPromptsByBrand(companyId int) (*TopPromptsByBrandResponse, error) {
-	rows, err := s.dashboardRepository.GetTopPromptsByBrand(companyId)
+func (s dashboardService) GetTopPromptsByBrand(companyId int, from, to, engines, tagIds, countries string) (*TopPromptsByBrandResponse, error) {
+	rows, err := s.dashboardRepository.GetTopPromptsByBrand(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -247,8 +247,8 @@ func (s dashboardService) GetTopPromptsByBrand(companyId int) (*TopPromptsByBran
 	return &TopPromptsByBrandResponse{Status: true, Desc: "Get top prompts by brand successful", Data: data}, nil
 }
 
-func (s dashboardService) GetTopCitationURLs(companyId int) (*TopCitationURLsResponse, error) {
-	rows, err := s.dashboardRepository.GetTopCitationURLs(companyId)
+func (s dashboardService) GetTopCitationURLs(companyId int, from, to, engines, tagIds, countries string) (*TopCitationURLsResponse, error) {
+	rows, err := s.dashboardRepository.GetTopCitationURLs(companyId, from, to, engines, tagIds, countries)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
