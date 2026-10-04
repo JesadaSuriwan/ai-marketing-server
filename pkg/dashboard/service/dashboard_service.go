@@ -437,6 +437,80 @@ func (s dashboardService) GetCitationWinnersLosers(companyId int, category, sour
 	}, nil
 }
 
+// citationChangeStableBandPct: a URL whose citation count moved by less than
+// this percent either way counts as "stable" rather than increased/decreased
+// — matches the ±10% definition shown in the feature's own info tooltip.
+const citationChangeStableBandPct = 10.0
+
+// GetCitationChanges compares the Overview page's selected date range against
+// the equal-length period immediately before it (e.g. a 14-day range is
+// compared to the 14 days before that, non-overlapping) — unlike
+// GetCitationWinnersLosers, which always uses a fixed last-7-days window for
+// its own small widget, this follows whatever range the page's filter bar is
+// set to. category/sourceType are left empty: the Overview page has no such
+// filters of its own, unlike the Citations page this logic was first built for.
+func (s dashboardService) GetCitationChanges(companyId int, from, to, engines, tagIds, countries string) (*CitationChangesResponse, error) {
+	currentFrom, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return nil, errs.NewBadRequestError("invalid from date")
+	}
+	currentTo, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		return nil, errs.NewBadRequestError("invalid to date")
+	}
+	rangeDays := int(currentTo.Sub(currentFrom).Hours()/24) + 1
+	if rangeDays < 1 {
+		return nil, errs.NewBadRequestError("to date must not be before from date")
+	}
+	previousTo := currentFrom.AddDate(0, 0, -1)
+	previousFrom := previousTo.AddDate(0, 0, -(rangeDays - 1))
+
+	rows, err := s.dashboardRepository.GetCitationURLChanges(
+		companyId, from, to, previousFrom.Format("2006-01-02"), previousTo.Format("2006-01-02"),
+		"", "", tagIds, engines, countries,
+	)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	data := []CitationChangeItem{}
+	for _, r := range rows {
+		if r.CurrentCount == 0 && r.PreviousCount == 0 {
+			continue
+		}
+
+		item := CitationChangeItem{
+			Url: r.Url, Title: r.Title,
+			CurrentCount: r.CurrentCount, PreviousCount: r.PreviousCount,
+			Change: r.CurrentCount - r.PreviousCount,
+		}
+
+		switch {
+		case r.PreviousCount == 0 && r.CurrentCount > 0:
+			item.Category = "new"
+		case r.PreviousCount > 0 && r.CurrentCount == 0:
+			item.Category = "lost"
+		default:
+			pct := (float64(r.CurrentCount) - float64(r.PreviousCount)) / float64(r.PreviousCount) * 100
+			switch {
+			case pct > citationChangeStableBandPct:
+				item.Category = "increased"
+			case pct < -citationChangeStableBandPct:
+				item.Category = "decreased"
+			default:
+				item.Category = "stable"
+			}
+		}
+
+		data = append(data, item)
+	}
+
+	sort.Slice(data, func(i, j int) bool { return data[i].CurrentCount > data[j].CurrentCount })
+
+	return &CitationChangesResponse{Status: true, Desc: "Get citation changes successful", Data: data}, nil
+}
+
 // winnerSortKey ranks brand-new citations above every numeric percentage —
 // there is no finite "% increase" from zero, so they're ordered by raw
 // volume instead, ahead of any bounded percentage gain.

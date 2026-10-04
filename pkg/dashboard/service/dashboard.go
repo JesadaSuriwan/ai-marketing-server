@@ -291,6 +291,28 @@ type CitationWinnersLosersResponse struct {
 	Data   CitationWinnersLosersData `json:"data"`
 }
 
+// CitationChangeItem is one URL's citation count compared between the
+// Overview page's selected date range and the equal-length period
+// immediately before it — unlike CitationWinnersLosersData (hardcoded to a
+// fixed last-7-days comparison for its own small top-3/bottom-3 widget),
+// this follows whatever range the user has filtered to. Category is one of
+// "new"/"increased"/"stable"/"decreased"/"lost", computed here rather than
+// client-side so the ±10% Stable band is defined in exactly one place.
+type CitationChangeItem struct {
+	Url           string `json:"url"`
+	Title         string `json:"title"`
+	CurrentCount  int    `json:"current_count"`
+	PreviousCount int    `json:"previous_count"`
+	Change        int    `json:"change"`
+	Category      string `json:"category"`
+}
+
+type CitationChangesResponse struct {
+	Status bool                 `json:"status"`
+	Desc   string               `json:"desc"`
+	Data   []CitationChangeItem `json:"data"`
+}
+
 type CitationURLPromptData struct {
 	PromptId          int    `json:"prompt_id"`
 	Title             string `json:"title"`
@@ -328,5 +350,6 @@ type DashboardService interface {
 	GetCitationURLs(companyId int, from, to string) (*CitationURLsResponse, error)
 	GetCitationURLPrompts(url string, companyId int) (*CitationURLPromptsResponse, error)
 	GetCitationWinnersLosers(companyId int, category, sourceType, tags, engines, countries string) (*CitationWinnersLosersResponse, error)
+	GetCitationChanges(companyId int, from, to, engines, tagIds, countries string) (*CitationChangesResponse, error)
 	GetBrandCitations(companyId, brandId int) (*BrandCitationsResponse, error)
 }

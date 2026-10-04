@@ -40,5 +40,6 @@ func (s *ginServer) initDashboardRouter() {
 	router.GET("/citation-urls", dashboardHandler.GetCitationURLs)
 	router.GET("/citation-url-prompts", dashboardHandler.GetCitationURLPrompts)
 	router.GET("/citation-winners-losers", dashboardHandler.GetCitationWinnersLosers)
+	router.GET("/citation-changes", dashboardHandler.GetCitationChanges)
 	router.GET("/brand-citations", dashboardHandler.GetBrandCitations)
 }

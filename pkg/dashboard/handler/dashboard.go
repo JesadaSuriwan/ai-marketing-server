@@ -349,6 +349,25 @@ func (h dashboardHandler) GetCitationURLs(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+func (h dashboardHandler) GetCitationChanges(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	from := c.Query("from")
+	to := c.Query("to")
+	engines := c.Query("engines")
+	tagIds := c.Query("tag_ids")
+	countries := c.Query("countries")
+	result, err := h.dashboardService.GetCitationChanges(companyId, from, to, engines, tagIds, countries)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h dashboardHandler) GetCitationWinnersLosers(c *gin.Context) {
 	companyId, err := strconv.Atoi(c.Query("company_id"))
 	if err != nil {
