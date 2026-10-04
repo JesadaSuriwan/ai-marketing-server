@@ -329,6 +329,33 @@ func (s dashboardService) GetCitationURLs(companyId int, from, to string) (*Cita
 	return &CitationURLsResponse{Status: true, Desc: "Get citation URLs successful", Data: data}, nil
 }
 
+func (s dashboardService) GetCitationURLDetail(companyId int, url string) (*CitationURLDetailResponse, error) {
+	r, err := s.dashboardRepository.GetCitationURLDetail(companyId, url)
+	if err != nil {
+		return nil, errs.NewNotFoundError("citation URL not found")
+	}
+	data := CitationURLDetailData{
+		Url: r.Url, Title: r.Title, BrandMentioned: r.BrandMentioned,
+		Competitors: r.Competitors, Domain: r.Domain,
+		DomainCategory: r.DomainCategory, SourceType: r.SourceType, Cited: r.Cited,
+		Engines: r.Engines, Tags: r.Tags, TargetCountry: r.TargetCountry,
+	}
+	return &CitationURLDetailResponse{Status: true, Desc: "Get citation URL detail successful", Data: data}, nil
+}
+
+func (s dashboardService) GetCitationURLTrend(companyId int, url, from, to string) (*CitationURLTrendResponse, error) {
+	rows, err := s.dashboardRepository.GetCitationURLDailyTrend(companyId, url, from, to)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	data := []CitationURLDailyPointData{}
+	for _, r := range rows {
+		data = append(data, CitationURLDailyPointData{Date: r.Date, CitationCount: r.CitationCount})
+	}
+	return &CitationURLTrendResponse{Status: true, Desc: "Get citation URL trend successful", Data: data}, nil
+}
+
 func (s dashboardService) GetCitationURLPrompts(url string, companyId int) (*CitationURLPromptsResponse, error) {
 	rows, err := s.dashboardRepository.GetCitationURLPrompts(url, companyId)
 	if err != nil {

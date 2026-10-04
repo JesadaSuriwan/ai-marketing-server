@@ -406,6 +406,46 @@ func (h dashboardHandler) GetCitationURLPrompts(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+func (h dashboardHandler) GetCitationURLDetail(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	url := c.Query("url")
+	if url == "" {
+		errs.HandleError(c, errs.NewBadRequestError("url is required"))
+		return
+	}
+	result, err := h.dashboardService.GetCitationURLDetail(companyId, url)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h dashboardHandler) GetCitationURLTrend(c *gin.Context) {
+	companyId, err := strconv.Atoi(c.Query("company_id"))
+	if err != nil {
+		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
+		return
+	}
+	url := c.Query("url")
+	if url == "" {
+		errs.HandleError(c, errs.NewBadRequestError("url is required"))
+		return
+	}
+	from := c.Query("from")
+	to := c.Query("to")
+	result, err := h.dashboardService.GetCitationURLTrend(companyId, url, from, to)
+	if err != nil {
+		errs.HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h dashboardHandler) GetPromptDomains(c *gin.Context) {
 	promptId, err := strconv.Atoi(c.Query("prompt_id"))
 	if err != nil {

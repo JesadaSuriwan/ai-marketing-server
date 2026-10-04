@@ -270,6 +270,26 @@ type CitationURLsResponse struct {
 	Data   []CitationURLDetailData `json:"data"`
 }
 
+// CitationURLDetailResponse wraps a single CitationURLDetailData (the same
+// per-URL shape GetCitationURLs already returns per row in its list) for the
+// Citation details panel's info grid.
+type CitationURLDetailResponse struct {
+	Status bool                  `json:"status"`
+	Desc   string                `json:"desc"`
+	Data   CitationURLDetailData `json:"data"`
+}
+
+type CitationURLDailyPointData struct {
+	Date          string `json:"date"`
+	CitationCount int    `json:"citation_count"`
+}
+
+type CitationURLTrendResponse struct {
+	Status bool                        `json:"status"`
+	Desc   string                      `json:"desc"`
+	Data   []CitationURLDailyPointData `json:"data"`
+}
+
 type CitationChangeData struct {
 	Url           string  `json:"url"`
 	Title         string  `json:"title"`
@@ -349,6 +369,8 @@ type DashboardService interface {
 	GetPromptsOverview(companyId int, from, to, engines string) (*PromptsOverviewResponse, error)
 	GetCitationURLs(companyId int, from, to string) (*CitationURLsResponse, error)
 	GetCitationURLPrompts(url string, companyId int) (*CitationURLPromptsResponse, error)
+	GetCitationURLDetail(companyId int, url string) (*CitationURLDetailResponse, error)
+	GetCitationURLTrend(companyId int, url, from, to string) (*CitationURLTrendResponse, error)
 	GetCitationWinnersLosers(companyId int, category, sourceType, tags, engines, countries string) (*CitationWinnersLosersResponse, error)
 	GetCitationChanges(companyId int, from, to, engines, tagIds, countries string) (*CitationChangesResponse, error)
 	GetBrandCitations(companyId, brandId int) (*BrandCitationsResponse, error)

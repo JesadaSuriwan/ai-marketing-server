@@ -541,6 +541,67 @@ func (r dashboardRepositoryDB) GetCitationURLs(companyId int, from, to string) (
 	return list, err
 }
 
+// GetCitationURLDetail is GetCitationURLs' same per-URL aggregation, scoped
+// to exactly one URL instead of date-ranged and listed — the Citation
+// details panel's static metadata (domain, category, brand mentioned,
+// competitors) isn't meant to be period-scoped the way the trend chart
+// beside it is, so this intentionally ignores date filters entirely.
+func (r dashboardRepositoryDB) GetCitationURLDetail(companyId int, url string) (*CitationURLDetail, error) {
+	row := CitationURLDetail{}
+	query := `
+		WITH own_brand_id AS (
+			SELECT COALESCE(MIN(id), 0) AS id FROM brands WHERE company_id = $1 AND is_own = TRUE
+		)
+		SELECT
+			c.url,
+			COALESCE(MIN(c.content), '') AS title,
+			COALESCE(BOOL_OR(c.brand_id = ob.id AND ob.id != 0), FALSE) AS brand_mentioned,
+			COALESCE(
+				STRING_AGG(DISTINCT CASE WHEN b.id IS NOT NULL AND b.is_own = FALSE THEN b.name END, ','),
+				''
+			) AS competitors,
+			REGEXP_REPLACE(c.url, '^(?:https?://)?(?:www\.)?([^/?#]*).*$', '\1') AS domain,
+			CASE
+				WHEN BOOL_OR(b.id IS NOT NULL AND b.is_own = TRUE) THEN 'Brand'
+				WHEN BOOL_OR(b.id IS NOT NULL AND b.is_own = FALSE) THEN 'Competitor'
+				ELSE 'Others'
+			END AS domain_category,
+			COALESCE(MIN(c.source_type), 'other') AS source_type,
+			COUNT(DISTINCT c.prompt_id)::INT AS cited,
+			COALESCE(STRING_AGG(DISTINCT c.ai_platform, ','), '') AS engines,
+			COALESCE(STRING_AGG(DISTINCT pc.name, ','), '') AS tags,
+			COALESCE(MAX(c.target_country), '') AS target_country
+		FROM citations c
+		CROSS JOIN own_brand_id ob
+		JOIN prompts p ON p.id = c.prompt_id
+		LEFT JOIN brands b ON b.id = c.brand_id AND b.company_id = $1
+		LEFT JOIN prompt_categories pc ON pc.id = p.tag_id
+		WHERE p.company_id = $1 AND c.url = $2
+		GROUP BY c.url, ob.id
+	`
+	err := r.db.Get(&row, query, companyId, url)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// GetCitationURLDailyTrend: from/to empty means no filter on that end, same
+// convention as every other date-ranged query in this file.
+func (r dashboardRepositoryDB) GetCitationURLDailyTrend(companyId int, url, from, to string) ([]CitationURLDailyPoint, error) {
+	list := []CitationURLDailyPoint{}
+	query := `
+		SELECT TO_CHAR(stat_date, 'YYYY-MM-DD') AS date, citation_count
+		FROM citation_url_daily_stats
+		WHERE company_id = $1 AND url = $2
+		  AND ($3 = '' OR stat_date >= $3::date)
+		  AND ($4 = '' OR stat_date <= $4::date)
+		ORDER BY stat_date ASC
+	`
+	err := r.db.Select(&list, query, companyId, url, from, to)
+	return list, err
+}
+
 // GetDomainCoverageTrend turns the existing per-URL daily citation counts
 // (citation_url_daily_stats, already bumped on every prompt run) into each
 // domain's day-by-day share of that day's citations.

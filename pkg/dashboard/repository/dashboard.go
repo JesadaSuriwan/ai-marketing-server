@@ -160,6 +160,15 @@ type CitationURLDetail struct {
 	TargetCountry string `db:"target_country"`
 }
 
+// CitationURLDailyPoint is one day's citation count for a single URL, drawn
+// from citation_url_daily_stats — the same per-(url,day) fact table
+// GetCitationURLChanges already sums over a period, here returned day by
+// day instead for the Citation details panel's trend chart.
+type CitationURLDailyPoint struct {
+	Date          string `db:"date"`
+	CitationCount int    `db:"citation_count"`
+}
+
 type CitationURLPrompt struct {
 	PromptId int    `db:"prompt_id"`
 	Title    string `db:"title"`
@@ -207,6 +216,8 @@ type DashboardRepository interface {
 	GetPromptsOverview(companyId int, from, to, engines string) ([]PromptOverview, error)
 	GetCitationURLs(companyId int, from, to string) ([]CitationURLDetail, error)
 	GetCitationURLPrompts(url string, companyId int) ([]CitationURLPrompt, error)
+	GetCitationURLDetail(companyId int, url string) (*CitationURLDetail, error)
+	GetCitationURLDailyTrend(companyId int, url, from, to string) ([]CitationURLDailyPoint, error)
 	GetCitationURLChanges(companyId int, currentFrom, currentTo, previousFrom, previousTo, category, sourceType, tags, engines, countries string) ([]CitationURLChange, error)
 	GetBrandCitations(companyId, brandId int) ([]BrandCitation, error)
 }
