@@ -78,6 +78,7 @@ type RunLogData struct {
 	ErrorMessage *string `json:"error_message"`
 	TriggerType  string  `json:"trigger_type"`
 	DurationMs   int     `json:"duration_ms"`
+	BatchId      string  `json:"batch_id"`
 	CreatedAt    string  `json:"created_at"`
 }
 

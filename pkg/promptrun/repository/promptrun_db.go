@@ -28,9 +28,9 @@ func (r promptRunRepositoryDB) GetByPromptId(promptId int) ([]PromptRun, error) 
 func (r promptRunRepositoryDB) CreateRunLog(p CreateRunLogParams) error {
 	_, err := r.db.Exec(
 		`INSERT INTO prompt_run_logs
-			(company_id, prompt_id, prompt_title, tag_id, country, ai_platform, model, status, error_message, trigger_type, duration_ms)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		p.CompanyId, p.PromptId, p.PromptTitle, p.TagId, p.Country, p.AiPlatform, p.Model, p.Status, p.ErrorMessage, p.TriggerType, p.DurationMs,
+			(company_id, prompt_id, prompt_title, tag_id, country, ai_platform, model, status, error_message, trigger_type, duration_ms, batch_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		p.CompanyId, p.PromptId, p.PromptTitle, p.TagId, p.Country, p.AiPlatform, p.Model, p.Status, p.ErrorMessage, p.TriggerType, p.DurationMs, p.BatchId,
 	)
 	return err
 }
@@ -43,7 +43,7 @@ func (r promptRunRepositoryDB) GetRunLogs(companyId int, f RunLogFilters) ([]Pro
 	query := `
 		SELECT
 			l.id, l.company_id, l.prompt_id, l.prompt_title, l.tag_id, pc.name AS tag_name,
-			l.country, l.ai_platform, l.model, l.status, l.error_message, l.trigger_type, l.duration_ms,
+			l.country, l.ai_platform, l.model, l.status, l.error_message, l.trigger_type, l.duration_ms, l.batch_id,
 			to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') || '+07:00' AS created_at
 		FROM prompt_run_logs l
 		LEFT JOIN prompt_categories pc ON pc.id = l.tag_id

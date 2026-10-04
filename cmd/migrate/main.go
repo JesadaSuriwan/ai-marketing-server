@@ -184,8 +184,12 @@ CREATE TABLE IF NOT EXISTS prompt_run_logs (
     error_message TEXT,
     trigger_type TEXT NOT NULL DEFAULT 'manual',
     duration_ms INT NOT NULL DEFAULT 0,
+    -- Shared by every engine's row from the same run() call, so the Prompts
+    -- Log UI can collapse a prompt's 5 engine attempts into one expandable row.
+    batch_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE prompt_run_logs ADD COLUMN IF NOT EXISTS batch_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS prompt_run_logs_company_created_idx ON prompt_run_logs (company_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS prompt_suggestions (

@@ -12,7 +12,9 @@ type PromptRun struct {
 // PromptRunLog is one (prompt, engine) attempt, success or failure. PromptId
 // and TagId are nullable — ON DELETE SET NULL when the source prompt/tag is
 // later deleted — which is why PromptTitle and Country are snapshotted onto
-// the row itself instead of only ever being read via a join.
+// the row itself instead of only ever being read via a join. BatchId is
+// shared by every engine's row from the same run() call, so the frontend can
+// group a prompt's whole run (one row per engine) into a single expandable entry.
 type PromptRunLog struct {
 	Id           int     `db:"id"`
 	CompanyId    int     `db:"company_id"`
@@ -27,6 +29,7 @@ type PromptRunLog struct {
 	ErrorMessage *string `db:"error_message"`
 	TriggerType  string  `db:"trigger_type"`
 	DurationMs   int     `db:"duration_ms"`
+	BatchId      string  `db:"batch_id"`
 	CreatedAt    string  `db:"created_at"`
 }
 
@@ -45,6 +48,7 @@ type CreateRunLogParams struct {
 	ErrorMessage *string
 	TriggerType  string
 	DurationMs   int
+	BatchId      string
 }
 
 // RunLogFilters mirrors the dashboard package's filter convention:

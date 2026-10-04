@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -173,14 +175,24 @@ func promptCountry(countries string) string {
 
 // logRun is best-effort — a failure to write the log row shouldn't fail (or
 // even be noticed by) the actual prompt run, just get noted server-side.
-func (s promptRunService) logRun(companyId, promptId int, promptTitle string, tagId *int, country, platform, model, status, triggerType string, errMsg *string, durationMs int) {
+func (s promptRunService) logRun(companyId, promptId int, promptTitle string, tagId *int, country, platform, model, status, triggerType, batchId string, errMsg *string, durationMs int) {
 	err := s.promptRunRepository.CreateRunLog(repository.CreateRunLogParams{
 		CompanyId: companyId, PromptId: promptId, PromptTitle: promptTitle, TagId: tagId, Country: country,
-		AiPlatform: platform, Model: model, Status: status, ErrorMessage: errMsg, TriggerType: triggerType, DurationMs: durationMs,
+		AiPlatform: platform, Model: model, Status: status, ErrorMessage: errMsg, TriggerType: triggerType, DurationMs: durationMs, BatchId: batchId,
 	})
 	if err != nil {
 		logs.Error(fmt.Errorf("failed to write prompt_run_logs row for prompt %d (%s): %w", promptId, platform, err))
 	}
+}
+
+// newBatchId groups every engine's log row from one run() call together, so
+// the Prompts Log UI can collapse them into a single expandable entry.
+func newBatchId() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }
 
 func (s promptRunService) run(promptId int, triggerType string) (*PromptRunListResponse, error) {
@@ -215,6 +227,7 @@ func (s promptRunService) run(promptId int, triggerType string) (*PromptRunListR
 	}
 
 	country := promptCountry(prompt.Countries)
+	batchId := newBatchId()
 	data := []PromptRunData{}
 	for _, eng := range engines {
 		start := time.Now()
@@ -223,7 +236,7 @@ func (s promptRunService) run(promptId int, triggerType string) (*PromptRunListR
 		if err != nil {
 			logs.Error(fmt.Errorf("%s run failed for prompt %d: %w", eng.Platform, promptId, err))
 			errMsg := err.Error()
-			s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusFailure, triggerType, &errMsg, durationMs)
+			s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusFailure, triggerType, batchId, &errMsg, durationMs)
 			continue
 		}
 
@@ -235,11 +248,11 @@ func (s promptRunService) run(promptId int, triggerType string) (*PromptRunListR
 		if err != nil {
 			logs.Error(err)
 			errMsg := err.Error()
-			s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusFailure, triggerType, &errMsg, durationMs)
+			s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusFailure, triggerType, batchId, &errMsg, durationMs)
 			continue
 		}
 
-		s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusSuccess, triggerType, nil, durationMs)
+		s.logRun(prompt.CompanyId, promptId, prompt.Title, prompt.TagId, country, eng.Platform, model, RunStatusSuccess, triggerType, batchId, nil, durationMs)
 
 		// Extraction is best-effort: the raw response is already saved, so a
 		// failure here shouldn't fail the whole run — just log and move on.
@@ -654,7 +667,7 @@ func (s promptRunService) GetRunLogs(companyId int, filters RunLogFilters) (*Run
 		data = append(data, RunLogData{
 			Id: r.Id, PromptId: r.PromptId, PromptTitle: r.PromptTitle, TagId: r.TagId, TagName: r.TagName,
 			Country: r.Country, AiPlatform: r.AiPlatform, Model: r.Model, Status: r.Status,
-			ErrorMessage: r.ErrorMessage, TriggerType: r.TriggerType, DurationMs: r.DurationMs, CreatedAt: r.CreatedAt,
+			ErrorMessage: r.ErrorMessage, TriggerType: r.TriggerType, DurationMs: r.DurationMs, BatchId: r.BatchId, CreatedAt: r.CreatedAt,
 		})
 	}
 	return &RunLogsResponse{Status: true, Desc: "Get run logs successful", Data: data}, nil
