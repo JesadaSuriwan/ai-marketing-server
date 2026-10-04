@@ -376,6 +376,50 @@ func (r dashboardRepositoryDB) GetBrandCoverageTrend(companyId int, from, to, en
 	return list, err
 }
 
+// GetBrandShareOfVoiceTrend computes each brand's day-by-day share of voice —
+// that brand's mentions that day / all tracked brands' mentions that day —
+// from visibility_data, the per-(brand,prompt,platform,day) mention facts
+// written on every actual prompt run (mirrors GetBrandCoverageTrend's use of
+// brand_prompt_coverage_daily for the same reason: citations.last_checked
+// only moves when a citation is re-confirmed, so it can't give a true
+// day-by-day count the way a fact written fresh on every run can).
+// engines/tagIds/countries are comma-separated lists — empty string means no
+// filter on that dimension, same convention as GetBrandCoverageTrend.
+func (r dashboardRepositoryDB) GetBrandShareOfVoiceTrend(companyId int, from, to, engines, tagIds, countries string) ([]BrandShareOfVoiceTrendRow, error) {
+	list := []BrandShareOfVoiceTrendRow{}
+	query := `
+		WITH filtered_prompts AS (
+			SELECT DISTINCT p.id
+			FROM prompts p
+			LEFT JOIN prompt_countries pco ON pco.prompt_id = p.id
+			WHERE p.company_id = $1
+			  AND ($4 = '' OR p.tag_id = ANY(string_to_array($4, ',')::int[]))
+			  AND ($5 = '' OR pco.country_code = ANY(string_to_array($5, ',')))
+		),
+		daily_mentions AS (
+			SELECT vd.brand_id, vd.date AS stat_date, SUM(vd.mentions) AS mentions
+			FROM visibility_data vd
+			JOIN brands b ON b.id = vd.brand_id AND b.company_id = $1
+			JOIN filtered_prompts fp ON fp.id = vd.prompt_id
+			WHERE ($2 = '' OR vd.date >= $2::date)
+			  AND ($3 = '' OR vd.date <= $3::date)
+			  AND ($6 = '' OR vd.platform = ANY(string_to_array($6, ',')))
+			GROUP BY vd.brand_id, vd.date
+		),
+		daily_totals AS (
+			SELECT stat_date, SUM(mentions) AS total_mentions FROM daily_mentions GROUP BY stat_date
+		)
+		SELECT dm.brand_id,
+			TO_CHAR(dm.stat_date, 'YYYY-MM-DD') AS date,
+			COALESCE(ROUND(dm.mentions::NUMERIC / NULLIF(dt.total_mentions, 0) * 100, 1), 0)::FLOAT AS share_of_voice
+		FROM daily_mentions dm
+		JOIN daily_totals dt ON dt.stat_date = dm.stat_date
+		ORDER BY dm.stat_date ASC
+	`
+	err := r.db.Select(&list, query, companyId, from, to, tagIds, countries, engines)
+	return list, err
+}
+
 // engines/tagIds/countries are comma-separated lists — empty means no
 // filter, same convention as GetTopCitationURLs. Backs both "Top Prompts by
 // Brand Mentions" and "Top Prompts by Website Citations" (the latter reuses

@@ -208,6 +208,57 @@ func (s dashboardService) GetBrandCoverageTrend(companyId int, from, to, engines
 	return &BrandCoverageTrendResponse{Status: true, Desc: "Get brand coverage trend successful", Data: data}, nil
 }
 
+// GetBrandVisibilityTrend merges the coverage and share-of-voice daily
+// series in Go rather than one bigger SQL join — the two underlying queries
+// already exist (GetBrandCoverageTrend is shared with the coverage-over-time
+// chart) and are simple to reason about separately; a point missing from one
+// series just keeps the other's zero-value default (COALESCE'd to 0 in SQL
+// already, so a brand with no activity on a given day legitimately is 0, not
+// missing data).
+func (s dashboardService) GetBrandVisibilityTrend(companyId int, from, to, engines, tagIds, countries string) (*BrandVisibilityTrendResponse, error) {
+	coverageRows, err := s.dashboardRepository.GetBrandCoverageTrend(companyId, from, to, engines, tagIds, countries)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+	sovRows, err := s.dashboardRepository.GetBrandShareOfVoiceTrend(companyId, from, to, engines, tagIds, countries)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	type key struct {
+		brandId int
+		date    string
+	}
+	merged := map[key]*BrandVisibilityTrendData{}
+	for _, r := range coverageRows {
+		k := key{r.BrandId, r.Date}
+		merged[k] = &BrandVisibilityTrendData{BrandId: r.BrandId, Date: r.Date, Coverage: r.Coverage}
+	}
+	for _, r := range sovRows {
+		k := key{r.BrandId, r.Date}
+		if p, ok := merged[k]; ok {
+			p.ShareOfVoice = r.ShareOfVoice
+		} else {
+			merged[k] = &BrandVisibilityTrendData{BrandId: r.BrandId, Date: r.Date, ShareOfVoice: r.ShareOfVoice}
+		}
+	}
+
+	data := make([]BrandVisibilityTrendData, 0, len(merged))
+	for _, p := range merged {
+		data = append(data, *p)
+	}
+	sort.Slice(data, func(i, j int) bool {
+		if data[i].Date != data[j].Date {
+			return data[i].Date < data[j].Date
+		}
+		return data[i].BrandId < data[j].BrandId
+	})
+
+	return &BrandVisibilityTrendResponse{Status: true, Desc: "Get brand visibility trend successful", Data: data}, nil
+}
+
 func (s dashboardService) GetDomainCoverageTrend(companyId int) (*DomainCoverageTrendResponse, error) {
 	rows, err := s.dashboardRepository.GetDomainCoverageTrend(companyId)
 	if err != nil {

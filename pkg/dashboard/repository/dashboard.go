@@ -85,6 +85,12 @@ type BrandCoverageTrendRow struct {
 	Coverage float64 `db:"coverage"`
 }
 
+type BrandShareOfVoiceTrendRow struct {
+	BrandId      int     `db:"brand_id"`
+	Date         string  `db:"date"`
+	ShareOfVoice float64 `db:"share_of_voice"`
+}
+
 type DomainCoverageTrendRow struct {
 	Domain   string  `db:"domain"`
 	Date     string  `db:"date"`
@@ -193,6 +199,7 @@ type DashboardRepository interface {
 	GetPromptDomains(promptId, companyId int, from, to string) ([]PromptDomain, error)
 	GetBrandRanking(companyId int, from, to, engines, tagIds, countries string) ([]BrandRankingRow, error)
 	GetBrandCoverageTrend(companyId int, from, to, engines, tagIds, countries string) ([]BrandCoverageTrendRow, error)
+	GetBrandShareOfVoiceTrend(companyId int, from, to, engines, tagIds, countries string) ([]BrandShareOfVoiceTrendRow, error)
 	GetDomainCoverageTrend(companyId int) ([]DomainCoverageTrendRow, error)
 	GetPromptBrandCoverageTrend(promptId, companyId int) ([]PromptBrandCoverageTrendRow, error)
 	GetTopPromptsByBrand(companyId int, from, to, engines, tagIds, countries string) ([]TopPromptByBrand, error)

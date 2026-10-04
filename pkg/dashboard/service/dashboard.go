@@ -178,6 +178,23 @@ type BrandCoverageTrendResponse struct {
 	Data   []BrandCoverageTrendData `json:"data"`
 }
 
+// BrandVisibilityTrendData merges GetBrandCoverageTrend and
+// GetBrandShareOfVoiceTrend into one per-(brand,day) point — the Brand
+// Visibility Index quadrant chart's time-lapse needs both axes moving
+// together for the same day, not two separately-paged series.
+type BrandVisibilityTrendData struct {
+	BrandId      int     `json:"brand_id"`
+	Date         string  `json:"date"`
+	Coverage     float64 `json:"coverage"`
+	ShareOfVoice float64 `json:"share_of_voice"`
+}
+
+type BrandVisibilityTrendResponse struct {
+	Status bool                       `json:"status"`
+	Desc   string                     `json:"desc"`
+	Data   []BrandVisibilityTrendData `json:"data"`
+}
+
 type DomainCoverageTrendData struct {
 	Domain   string  `json:"domain"`
 	Date     string  `json:"date"`
@@ -302,6 +319,7 @@ type DashboardService interface {
 	GetPromptDomains(promptId, companyId int, from, to string) (*PromptDomainsResponse, error)
 	GetBrandRanking(companyId int, from, to, engines, tagIds, countries string) (*BrandRankingResponse, error)
 	GetBrandCoverageTrend(companyId int, from, to, engines, tagIds, countries string) (*BrandCoverageTrendResponse, error)
+	GetBrandVisibilityTrend(companyId int, from, to, engines, tagIds, countries string) (*BrandVisibilityTrendResponse, error)
 	GetDomainCoverageTrend(companyId int) (*DomainCoverageTrendResponse, error)
 	GetPromptBrandCoverageTrend(promptId, companyId int) (*PromptBrandCoverageTrendResponse, error)
 	GetTopPromptsByBrand(companyId int, from, to, engines, tagIds, countries string) (*TopPromptsByBrandResponse, error)
