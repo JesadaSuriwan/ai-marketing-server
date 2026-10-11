@@ -55,10 +55,18 @@ func (r dashboardRepositoryDB) GetTopPrompts(companyId int) ([]TopPrompt, error)
 // Domain Coverage/Domain Citations entirely — each filter is folded into
 // the JOIN's own ON clause instead of a WHERE so it doesn't turn the LEFT
 // JOIN into an inner one.
+// GetTopDomains normalizes brands.domain down to a bare host (strips
+// scheme/www/path) with the same REGEXP_REPLACE pattern GetDomainCoverageTrend
+// uses on cited URLs — brands.domain is free-typed (some rows are full URLs
+// like "https://www.example.com/", others already bare), and the frontend
+// matches this query's domain strings against that one's by exact equality
+// to decide which trend lines to chart. Left as the raw column, a brand
+// stored as a full URL could never match even when the exact same real-world
+// domain was genuinely cited.
 func (r dashboardRepositoryDB) GetTopDomains(companyId int, from, to, engines, tagIds, countries string) ([]TopDomain, error) {
 	list := []TopDomain{}
 	query := `
-		SELECT b.domain, COUNT(c.id) as mention_count
+		SELECT REGEXP_REPLACE(b.domain, '^(?:https?://)?(?:www\.)?([^/?#]*).*$', '\1') AS domain, COUNT(c.id) as mention_count
 		FROM brands b
 		LEFT JOIN citations c ON c.brand_id = b.id
 			AND ($2 = '' OR c.last_checked >= $2::date)
@@ -71,7 +79,7 @@ func (r dashboardRepositoryDB) GetTopDomains(companyId int, from, to, engines, t
 				SELECT 1 FROM prompt_countries pco WHERE pco.prompt_id = c.prompt_id AND pco.country_code = ANY(string_to_array($6, ','))
 			))
 		WHERE b.company_id = $1
-		GROUP BY b.domain
+		GROUP BY REGEXP_REPLACE(b.domain, '^(?:https?://)?(?:www\.)?([^/?#]*).*$', '\1')
 		ORDER BY mention_count DESC
 		LIMIT 7
 	`
