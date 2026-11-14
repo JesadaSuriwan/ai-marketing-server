@@ -163,6 +163,18 @@ func (s promptRunService) RunSystem(promptId int, triggerType string) (*PromptRu
 	return s.run(promptId, triggerType)
 }
 
+// parseContractEndDate accepts both a bare "2006-01-02" date and the
+// RFC3339 timestamp (e.g. "2026-11-10T00:00:00Z") that lib/pq actually
+// returns when scanning a Postgres `date` column into a Go string — the
+// bare layout alone always failed to parse that value, silently making the
+// contract-expiry check below a no-op.
+func parseContractEndDate(raw string) (time.Time, error) {
+	if end, err := time.Parse("2006-01-02", raw); err == nil {
+		return end, nil
+	}
+	return time.Parse(time.RFC3339, raw)
+}
+
 // run fans out the prompt across every configured engine (e.g. ChatGPT and
 // Gemini run one after another). Each engine is best-effort: one failing
 // doesn't stop the others — the result includes whichever runs succeeded.
@@ -209,7 +221,7 @@ func (s promptRunService) run(promptId int, triggerType string) (*PromptRunListR
 		return nil, errs.NewNotFoundError("company not found")
 	}
 	if company.ContractEndDate != nil {
-		if end, err := time.Parse("2006-01-02", *company.ContractEndDate); err == nil && time.Now().After(end) {
+		if end, err := parseContractEndDate(*company.ContractEndDate); err == nil && time.Now().After(end) {
 			return nil, errs.NewBadRequestError("this workspace's contract has ended — renew it in Settings to resume prompt runs")
 		}
 	}
