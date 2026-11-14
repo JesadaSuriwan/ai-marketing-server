@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/ai-marketing/ai-marketing-server/logs"
+	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
+	notificationRepository "github.com/ai-marketing/ai-marketing-server/pkg/notification/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/prompt/repository"
 	"github.com/ai-marketing/ai-marketing-server/pkg/promptrun/service"
 	"github.com/robfig/cron/v3"
@@ -12,11 +14,14 @@ import (
 
 // Scheduler runs every tracked prompt (across every company) on a cron
 // cadence, reusing the same run + citation-extraction pipeline as the
-// manual "Run Prompt" button and the "run all" endpoint.
+// manual "Run Prompt" button and the "run all" endpoint. It also sweeps for
+// contracts about to expire (see contract_reminder.go) on the same cadence.
 type Scheduler struct {
-	cron             *cron.Cron
-	promptRunService service.PromptRunService
-	promptRepository repository.PromptRepository
+	cron                   *cron.Cron
+	promptRunService       service.PromptRunService
+	promptRepository       repository.PromptRepository
+	companyRepository      companyRepository.CompanyRepository
+	notificationRepository notificationRepository.NotificationRepository
 }
 
 // bangkokLocation pins the schedule to Thailand time regardless of the
@@ -32,18 +37,29 @@ var bangkokLocation = func() *time.Location {
 	return loc
 }()
 
-func New(promptRunService service.PromptRunService, promptRepository repository.PromptRepository) *Scheduler {
+func New(
+	promptRunService service.PromptRunService,
+	promptRepository repository.PromptRepository,
+	companyRepository companyRepository.CompanyRepository,
+	notificationRepository notificationRepository.NotificationRepository,
+) *Scheduler {
 	return &Scheduler{
-		cron:             cron.New(cron.WithLocation(bangkokLocation)),
-		promptRunService: promptRunService,
-		promptRepository: promptRepository,
+		cron:                   cron.New(cron.WithLocation(bangkokLocation)),
+		promptRunService:       promptRunService,
+		promptRepository:       promptRepository,
+		companyRepository:      companyRepository,
+		notificationRepository: notificationRepository,
 	}
 }
 
-// Start schedules the sweep on cronExpr (standard 5-field cron syntax) and
-// begins running it in the background.
+// Start schedules the prompt sweep and the contract-reminder sweep on the
+// same cronExpr (standard 5-field cron syntax) and begins running both in
+// the background.
 func (s *Scheduler) Start(cronExpr string) error {
 	if _, err := s.cron.AddFunc(cronExpr, s.runAll); err != nil {
+		return err
+	}
+	if _, err := s.cron.AddFunc(cronExpr, s.checkContractReminders); err != nil {
 		return err
 	}
 	s.cron.Start()

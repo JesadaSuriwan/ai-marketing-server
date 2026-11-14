@@ -15,6 +15,8 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/config"
 	"github.com/ai-marketing/ai-marketing-server/logs"
 	"github.com/ai-marketing/ai-marketing-server/middlewares"
+	companyRepository "github.com/ai-marketing/ai-marketing-server/pkg/company/repository"
+	notificationRepository "github.com/ai-marketing/ai-marketing-server/pkg/notification/repository"
 	promptRepository "github.com/ai-marketing/ai-marketing-server/pkg/prompt/repository"
 	promptRunService "github.com/ai-marketing/ai-marketing-server/pkg/promptrun/service"
 	"github.com/ai-marketing/ai-marketing-server/pkg/scheduler"
@@ -98,7 +100,12 @@ func (s *ginServer) Start() {
 	s.initRecommendationRouter()
 
 	if s.conf.Scheduler != nil && s.conf.Scheduler.Enabled {
-		sched := scheduler.New(s.promptRunService, promptRepository.NewPromptRepositoryDB(s.db))
+		sched := scheduler.New(
+			s.promptRunService,
+			promptRepository.NewPromptRepositoryDB(s.db),
+			companyRepository.NewCompanyRepositoryDB(s.db),
+			notificationRepository.NewNotificationRepositoryDB(s.db),
+		)
 		if err := sched.Start(s.conf.Scheduler.CronExpression); err != nil {
 			logs.Error(err)
 		}

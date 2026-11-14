@@ -21,4 +21,9 @@ type NotificationRepository interface {
 	MarkAllRead(tx *sqlx.Tx, companyId int) error
 	Delete(tx *sqlx.Tx, id int) error
 	BelongsToUser(id, userId int) (bool, error)
+	// ExistsByCompanyTypeAndDescription dedupes recurring system-generated
+	// notifications (e.g. the contract-expiry reminder) — description
+	// embeds the exact date it's about, so a new one is only created once
+	// that date actually changes (e.g. after a renewal).
+	ExistsByCompanyTypeAndDescription(companyId int, nType, description string) (bool, error)
 }

@@ -55,6 +55,16 @@ func (r companyRepositoryDB) GetById(id int) (*Company, error) {
 	return &c, nil
 }
 
+func (r companyRepositoryDB) GetAllWithContractEndDate() ([]Company, error) {
+	list := []Company{}
+	query := `SELECT id, user_id, name, contract_end_date FROM companies WHERE contract_end_date IS NOT NULL`
+	err := r.db.Select(&list, query)
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 func (r companyRepositoryDB) Update(tx *sqlx.Tx, c Company) error {
 	query := `UPDATE companies SET name=$1, initials=$2, logo_url=$3, industry=$4, website=$5, location=$6, size=$7, founded=$8, phone=$9, email=$10, about=$11, plan=$12, updated_at=NOW() WHERE id=$13`
 	_, err := tx.Exec(query, c.Name, c.Initials, c.LogoUrl, c.Industry, c.Website, c.Location, c.Size, c.Founded, c.Phone, c.Email, c.About, c.Plan, c.Id)

@@ -80,6 +80,10 @@ type CompanyRepository interface {
 	Create(tx *sqlx.Tx, c Company) (int, error)
 	GetAll(userId int) ([]Company, error)
 	GetById(id int) (*Company, error)
+	// GetAllWithContractEndDate returns every company (across every user)
+	// that has a contract_end_date set — used by the daily contract-expiry
+	// reminder sweep, which otherwise has no per-user scope to work from.
+	GetAllWithContractEndDate() ([]Company, error)
 	Update(tx *sqlx.Tx, c Company) error
 	Delete(tx *sqlx.Tx, id int) error
 	GetTags(companyId int) ([]CompanyTag, error)
