@@ -1,14 +1,16 @@
 package service
 
 type NotificationData struct {
-	Id          int    `json:"id"`
-	UserId      int    `json:"user_id"`
-	CompanyId   int    `json:"company_id"`
-	Type        string `json:"type"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	IsRead      bool   `json:"is_read"`
-	CreatedAt   string `json:"created_at"`
+	Id             int    `json:"id"`
+	UserId         int    `json:"user_id"`
+	CompanyId      int    `json:"company_id"`
+	Type           string `json:"type"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	IsRead         bool   `json:"is_read"`
+	CreatedAt      string `json:"created_at"`
+	CompanyName    string `json:"company_name"`
+	CompanyWebsite string `json:"company_website"`
 }
 
 type CreateNotificationRequest struct {
@@ -31,9 +33,9 @@ type SimpleResponse struct {
 }
 
 type NotificationService interface {
-	GetAll(companyId int) (*NotificationListResponse, error)
+	GetAll(userId int) (*NotificationListResponse, error)
 	Create(req CreateNotificationRequest) (*SimpleResponse, error)
 	MarkRead(id, userId int) (*SimpleResponse, error)
-	MarkAllRead(companyId int) (*SimpleResponse, error)
+	MarkAllRead(userId int) (*SimpleResponse, error)
 	Delete(id, userId int) (*SimpleResponse, error)
 }

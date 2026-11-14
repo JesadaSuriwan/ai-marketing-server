@@ -26,8 +26,8 @@ func (s notificationService) verifyOwnership(id, userId int) error {
 	return nil
 }
 
-func (s notificationService) GetAll(companyId int) (*NotificationListResponse, error) {
-	notifications, err := s.notificationRepository.GetAll(companyId)
+func (s notificationService) GetAll(userId int) (*NotificationListResponse, error) {
+	notifications, err := s.notificationRepository.GetAllForUser(userId)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
@@ -38,6 +38,7 @@ func (s notificationService) GetAll(companyId int) (*NotificationListResponse, e
 		data = append(data, NotificationData{
 			Id: n.Id, UserId: n.UserId, CompanyId: n.CompanyId, Type: n.Type,
 			Title: n.Title, Description: n.Description, IsRead: n.IsRead, CreatedAt: n.CreatedAt,
+			CompanyName: n.CompanyName, CompanyWebsite: n.CompanyWebsite,
 		})
 	}
 
@@ -95,7 +96,7 @@ func (s notificationService) MarkRead(id, userId int) (*SimpleResponse, error) {
 	return &SimpleResponse{Status: true, Desc: "Notification marked as read"}, nil
 }
 
-func (s notificationService) MarkAllRead(companyId int) (*SimpleResponse, error) {
+func (s notificationService) MarkAllRead(userId int) (*SimpleResponse, error) {
 	tx, err := s.notificationRepository.NewTransaction()
 	if err != nil {
 		logs.Error(err)
@@ -103,7 +104,7 @@ func (s notificationService) MarkAllRead(companyId int) (*SimpleResponse, error)
 	}
 	defer tx.Rollback()
 
-	if err = s.notificationRepository.MarkAllRead(tx, companyId); err != nil {
+	if err = s.notificationRepository.MarkAllReadForUser(tx, userId); err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
 	}

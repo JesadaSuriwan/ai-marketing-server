@@ -18,13 +18,14 @@ func (s *ginServer) initNotificationRouter() {
 	router := s.app.Group("/notification")
 	router.Use(authMiddleware.AuthRequired)
 
-	// List: company_id in query → OwnerByQuery
-	router.GET("", companyMiddleware.OwnerByQuery, notificationHandler.GetAll)
+	// List: shared inbox across every company the user can access — scoped
+	// to userId (from AuthRequired) inside the handler, no company_id needed.
+	router.GET("", notificationHandler.GetAll)
 	// Create: company_id in body → OwnerByBodyCompanyId; handler re-reads with ShouldBindBodyWith
 	router.POST("", companyMiddleware.OwnerByBodyCompanyId, notificationHandler.Create)
 	// MarkRead, Delete: ownership verified inside service via BelongsToUser
 	router.PUT("/:id/read", notificationHandler.MarkRead)
-	// MarkAllRead: company_id in query → OwnerByQuery
-	router.PUT("/read-all", companyMiddleware.OwnerByQuery, notificationHandler.MarkAllRead)
+	// MarkAllRead: same shared-inbox scope as GetAll, by userId
+	router.PUT("/read-all", notificationHandler.MarkAllRead)
 	router.DELETE("/:id", notificationHandler.Delete)
 }

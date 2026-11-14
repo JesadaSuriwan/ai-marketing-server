@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"github.com/ai-marketing/ai-marketing-server/errs"
 	"github.com/ai-marketing/ai-marketing-server/pkg/notification/service"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 type notificationHandler struct {
@@ -19,13 +19,8 @@ func NewNotificationHandler(notificationService service.NotificationService) not
 }
 
 func (h notificationHandler) GetAll(c *gin.Context) {
-	companyId, err := strconv.Atoi(c.Query("company_id"))
-	if err != nil {
-		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
-		return
-	}
-
-	result, err := h.notificationService.GetAll(companyId)
+	userId := c.GetInt("userId")
+	result, err := h.notificationService.GetAll(userId)
 	if err != nil {
 		errs.HandleError(c, err)
 		return
@@ -65,13 +60,8 @@ func (h notificationHandler) MarkRead(c *gin.Context) {
 }
 
 func (h notificationHandler) MarkAllRead(c *gin.Context) {
-	companyId, err := strconv.Atoi(c.Query("company_id"))
-	if err != nil {
-		errs.HandleError(c, errs.NewBadRequestError("invalid company_id"))
-		return
-	}
-
-	result, err := h.notificationService.MarkAllRead(companyId)
+	userId := c.GetInt("userId")
+	result, err := h.notificationService.MarkAllRead(userId)
 	if err != nil {
 		errs.HandleError(c, err)
 		return

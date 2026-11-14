@@ -14,9 +14,17 @@ func (r notificationRepositoryDB) NewTransaction() (*sqlx.Tx, error) {
 	return r.db.Beginx()
 }
 
-func (r notificationRepositoryDB) GetAll(companyId int) ([]Notification, error) {
+func (r notificationRepositoryDB) GetAllForUser(userId int) ([]Notification, error) {
 	list := []Notification{}
-	err := r.db.Select(&list, `SELECT id, user_id, company_id, type, title, description, is_read, created_at FROM notifications WHERE company_id = $1 ORDER BY created_at DESC`, companyId)
+	query := `
+		SELECT n.id, n.user_id, n.company_id, n.type, n.title, n.description, n.is_read, n.created_at,
+			c.name AS company_name, c.website AS company_website
+		FROM notifications n
+		JOIN companies c ON c.id = n.company_id
+		WHERE c.user_id = $1 OR EXISTS(SELECT 1 FROM company_members cm WHERE cm.company_id = c.id AND cm.user_id = $1 AND cm.status = 'active')
+		ORDER BY n.created_at DESC
+	`
+	err := r.db.Select(&list, query, userId)
 	return list, err
 }
 
@@ -31,8 +39,15 @@ func (r notificationRepositoryDB) MarkRead(tx *sqlx.Tx, id int) error {
 	return err
 }
 
-func (r notificationRepositoryDB) MarkAllRead(tx *sqlx.Tx, companyId int) error {
-	_, err := tx.Exec(`UPDATE notifications SET is_read=true WHERE company_id=$1`, companyId)
+func (r notificationRepositoryDB) MarkAllReadForUser(tx *sqlx.Tx, userId int) error {
+	_, err := tx.Exec(`
+		UPDATE notifications n SET is_read = true
+		FROM companies c
+		WHERE n.company_id = c.id AND (
+			c.user_id = $1
+			OR EXISTS(SELECT 1 FROM company_members cm WHERE cm.company_id = c.id AND cm.user_id = $1 AND cm.status = 'active')
+		)
+	`, userId)
 	return err
 }
 
