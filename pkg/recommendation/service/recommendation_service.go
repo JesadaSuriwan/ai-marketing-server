@@ -27,7 +27,7 @@ Your ONLY job is to write persuasive, concise copy for each numbered candidate. 
 
 You may also be given the company's "Standing rules" (persistent preferences they've saved, applying to every generation) and/or one-off "User guidance" for this run specifically. Use both only to decide which of the given candidates to emphasize and how to angle/frame their copy (tone, which detail to lead with). Never let either cause you to invent a URL, number, or opportunity that isn't already in the numbered list — if a rule or guidance references something not present in the candidates, ignore that part of it.
 
-LANGUAGE: a line above the candidate list may state the client's primary tracked market and the language to default to for "text" and "why" — follow it for every candidate unless that specific candidate's own data quotes a tracked prompt/query in a different language, in which case match that quoted language instead (this is the rule the "headline" field below already follows). If no such line is given, use the language the candidate's own data is written in.
+LANGUAGE: a line above the candidate list may state the client's primary tracked market and the language to default to for "text" and "why" — follow it for every candidate UNLESS that specific candidate's own data overrides it, which happens two ways: (1) it quotes a tracked prompt/query in a different language (match that quoted language instead — the "headline" field below already follows this rule), or (2) it states its own target market is different from the client's general one (e.g. a mixed-market client where most candidates default to Thai but one citation's own target market is Vietnam — write THAT candidate in Vietnamese instead). If no market line is given at all, use the language the candidate's own data is written in.
 
 For each candidate, produce:
 - "text": one sentence describing the recommended action
@@ -60,6 +60,21 @@ type claudeCopy struct {
 	Why      string   `json:"why"`
 	Steps    []string `json:"steps"`
 	Headline string   `json:"headline"`
+}
+
+// candidateLanguageOverride returns a per-candidate note telling Claude to
+// write THIS candidate's "text"/"why" in a different market's language than
+// the company-wide default stated at the top of the prompt — for a
+// mixed-market company (e.g. mostly Thailand-tracked prompts but this one
+// citation's target market is Vietnam), the citation's own detected market
+// should win over the company's overall majority. Empty when the country is
+// unset/undetermined (detectCountryFromTLD couldn't tell).
+func candidateLanguageOverride(countryCode string) string {
+	name := location.Name(countryCode)
+	if name == "" {
+		return ""
+	}
+	return fmt.Sprintf(" This specific opportunity's target market is %s — write this candidate's \"text\" and \"why\" in that market's language, even if it differs from the client's general market stated above.", name)
 }
 
 // primaryCountry returns the most common first-listed country code among the
@@ -241,16 +256,16 @@ func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[
 				c.Impact = "medium"
 			}
 			contexts[nextId] = fmt.Sprintf(
-				"[editorial_gap] An editorial article at domain %q (url: %s) currently cites our competitor(s) %s but does not mention our brand. It has appeared in %d tracked prompt(s). Recommend pitching this publication for a mention or feature.",
-				u.Domain, url, u.Competitors, u.Cited,
+				"[editorial_gap] An editorial article at domain %q (url: %s) currently cites our competitor(s) %s but does not mention our brand. It has appeared in %d tracked prompt(s). Recommend pitching this publication for a mention or feature.%s",
+				u.Domain, url, u.Competitors, u.Cited, candidateLanguageOverride(u.TargetCountry),
 			)
 			editorialGaps = append(editorialGaps, c)
 			nextId++
 		} else if u.BrandMentioned {
 			c := candidate{Id: nextId, Kind: "existing_mention", Type: "content_partnership", Placement: "off_page", Impact: "medium", Link: &url, LinkText: &linkText}
 			contexts[nextId] = fmt.Sprintf(
-				"[existing_mention] Our brand is already cited in an editorial article at domain %q (url: %s), appearing in %d tracked prompt(s). Recommend deepening this relationship (e.g. a co-branded feature, updated quote, or sponsorship) to increase future citation frequency.",
-				u.Domain, url, u.Cited,
+				"[existing_mention] Our brand is already cited in an editorial article at domain %q (url: %s), appearing in %d tracked prompt(s). Recommend deepening this relationship (e.g. a co-branded feature, updated quote, or sponsorship) to increase future citation frequency.%s",
+				u.Domain, url, u.Cited, candidateLanguageOverride(u.TargetCountry),
 			)
 			existingMentions = append(existingMentions, c)
 			nextId++
