@@ -210,9 +210,17 @@ func Hint(country string) string {
 	if country == "" {
 		return ""
 	}
-	name, ok := names[country]
-	if !ok {
-		name = country
+	return fmt.Sprintf("The user asking this question is located in %s. Tailor your search and answer to that country, and reply in the same language as the question.", Name(country))
+}
+
+// Name returns the country name for an ISO 3166-1 alpha-2 code, or the raw
+// code itself if unrecognized. Empty when country is empty.
+func Name(country string) string {
+	if country == "" {
+		return ""
 	}
-	return fmt.Sprintf("The user asking this question is located in %s. Tailor your search and answer to that country, and reply in the same language as the question.", name)
+	if name, ok := names[country]; ok {
+		return name
+	}
+	return country
 }

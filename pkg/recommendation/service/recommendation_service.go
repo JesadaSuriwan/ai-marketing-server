@@ -18,13 +18,16 @@ import (
 	"github.com/ai-marketing/ai-marketing-server/pkg/recommendation/repository"
 	recommendationRuleRepository "github.com/ai-marketing/ai-marketing-server/pkg/recommendationrule/repository"
 	usageService "github.com/ai-marketing/ai-marketing-server/pkg/usage/service"
+	"github.com/ai-marketing/ai-marketing-server/providers/location"
 )
 
-const recommendationSystemPrompt = `You are an AI-search visibility strategist writing recommendations for a marketing agency's client. You are given a numbered list of REAL, verified opportunities already detected from the client's AI-citation tracking data — each one already has a real URL/domain, competitor name, and/or tracked prompt attached.
+const recommendationSystemPrompt = `You are an AI-search visibility strategist writing recommendations for a marketing agency's client. You are given a numbered list of REAL, verified opportunities — most already have a real URL/domain, competitor name, and/or tracked prompt attached ([editorial_gap], [existing_mention], [content_gap]); two kinds ([branded_prompts], [prompt_mix]) are instead meta observations about the shape of the client's tracked-prompt list itself, with real counts/percentages already computed for you.
 
 Your ONLY job is to write persuasive, concise copy for each numbered candidate. Do NOT invent, add, or modify any URL, domain, number, brand name, or platform — use only what is given to you in each candidate's data.
 
 You may also be given the company's "Standing rules" (persistent preferences they've saved, applying to every generation) and/or one-off "User guidance" for this run specifically. Use both only to decide which of the given candidates to emphasize and how to angle/frame their copy (tone, which detail to lead with). Never let either cause you to invent a URL, number, or opportunity that isn't already in the numbered list — if a rule or guidance references something not present in the candidates, ignore that part of it.
+
+LANGUAGE: a line above the candidate list may state the client's primary tracked market and the language to default to for "text" and "why" — follow it for every candidate unless that specific candidate's own data quotes a tracked prompt/query in a different language, in which case match that quoted language instead (this is the rule the "headline" field below already follows). If no such line is given, use the language the candidate's own data is written in.
 
 For each candidate, produce:
 - "text": one sentence describing the recommended action
@@ -59,18 +62,29 @@ type claudeCopy struct {
 	Headline string   `json:"headline"`
 }
 
-// portfolioRec is a recommendation about the shape of the tracked-prompt list
-// itself (funnel-stage mix, branded-vs-unbranded ratio) rather than any single
-// citation. It's pure arithmetic over prompts/brands already in the database,
-// so — unlike the citation-grounded candidates above — its copy is written
-// directly in Go rather than handed to Claude; there's no room for a
-// hallucinated number here since Go already computed the exact one.
-type portfolioRec struct {
-	Type   string
-	Impact string
-	Text   string
-	Why    string
-	Steps  []string
+// primaryCountry returns the most common first-listed country code among the
+// given prompt overview rows (same "first in the comma list wins" convention
+// as promptrun's promptCountry) — the company-wide default language signal
+// for candidates that aren't grounded in one specific tracked prompt/query
+// (editorial_gap, existing_mention, and the portfolio-level candidates).
+// Empty if no prompt has a country set.
+func primaryCountry(overview []dashboardRepository.PromptOverview) string {
+	counts := map[string]int{}
+	for _, o := range overview {
+		code, _, _ := strings.Cut(o.Countries, ",")
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if code == "" {
+			continue
+		}
+		counts[code]++
+	}
+	best, bestCount := "", 0
+	for code, n := range counts {
+		if n > bestCount {
+			best, bestCount = code, n
+		}
+	}
+	return best
 }
 
 type recommendationService struct {
@@ -109,18 +123,24 @@ func NewRecommendationService(
 // prompt list (approximated as "does not mention the own brand" — a
 // deliberately simple heuristic: branded/purchase-intent queries are
 // considered further down the funnel, everything else top-of-funnel).
-func (s recommendationService) buildPortfolioCandidates(companyId int) ([]portfolioRec, error) {
+// buildPortfolioCandidates returns candidates starting at startId (continuing
+// the numbering buildCandidates left off at) so both sets can share one id
+// space across the Claude round trip. The underlying numbers (brandedCount,
+// pct, len(prompts)) are computed here in Go and handed to Claude as given
+// facts in the context string — same "never hallucinated" guarantee as the
+// citation-grounded candidates, just no longer hardcoded English output.
+func (s recommendationService) buildPortfolioCandidates(companyId, startId int) ([]candidate, map[int]string, error) {
 	prompts, err := s.promptRepository.GetAll(companyId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(prompts) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	brands, err := s.brandRepository.GetAll(companyId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ownNames := []string{}
 	for _, b := range brands {
@@ -147,41 +167,30 @@ func (s recommendationService) buildPortfolioCandidates(companyId int) ([]portfo
 		}
 	}
 
-	recs := []portfolioRec{}
+	all := []candidate{}
+	contexts := map[int]string{}
+	nextId := startId
 
 	if brandedCount > 0 {
-		recs = append(recs, portfolioRec{
-			Type: "branded_prompts", Impact: "medium",
-			Text: fmt.Sprintf("Remove branded prompts for more objective recommendations. You have %d branded prompt(s).", brandedCount),
-			Why:  "Prompts that already include your own brand name tend to show inflated visibility, since you're more likely to already dominate them. Replacing them with unbranded, category-level queries gives a more objective read on real competitive visibility.",
-			Steps: []string{
-				"Review your tracked prompts list",
-				"Identify prompts that include your brand name",
-				"Replace them with generic, unbranded search queries in the same category",
-				"Re-run tracking to get an objective baseline",
-			},
-		})
+		all = append(all, candidate{Id: nextId, Kind: "branded_prompts", Type: "branded_prompts", Placement: "general", Impact: "medium"})
+		contexts[nextId] = fmt.Sprintf(
+			"[branded_prompts] This client has %d branded tracked prompt(s) — prompts that already contain their own brand name, which tend to show inflated visibility since they're more likely to already dominate them. Recommend removing/replacing branded prompts with unbranded, category-level queries for a more objective competitive-visibility baseline.",
+			brandedCount,
+		)
+		nextId++
 	}
 
 	if len(prompts) >= 3 {
 		pct := int(float64(topOfFunnelCount) / float64(len(prompts)) * 100)
-		recs = append(recs, portfolioRec{
-			Type: "prompt_mix", Impact: "low",
-			Text: fmt.Sprintf("Rebalance your prompt mix — %d%% of your prompts are top-of-funnel.", pct),
-			Why: fmt.Sprintf(
-				"A healthy mix of top-, middle-, and bottom-of-funnel prompts gives a more complete picture of your AI visibility across the full buyer journey. Currently %d%% of your %d tracked prompts are broad, unbranded (top-of-funnel) queries.",
-				pct, len(prompts),
-			),
-			Steps: []string{
-				"Audit your current prompt list by funnel stage",
-				"Add middle-of-funnel prompts (comparison or feature-specific queries)",
-				"Add bottom-of-funnel prompts (branded, purchase-intent queries)",
-				"Aim for a more even split across funnel stages",
-			},
-		})
+		all = append(all, candidate{Id: nextId, Kind: "prompt_mix", Type: "prompt_mix", Placement: "general", Impact: "low"})
+		contexts[nextId] = fmt.Sprintf(
+			"[prompt_mix] %d%% of this client's %d tracked prompts are broad, unbranded (top-of-funnel) queries. Recommend rebalancing the prompt mix to include middle-of-funnel (comparison/feature) and bottom-of-funnel (branded, purchase-intent) queries, for a more complete picture of AI visibility across the full buyer journey.",
+			pct, len(prompts),
+		)
+		nextId++
 	}
 
-	return recs, nil
+	return all, contexts, nil
 }
 
 func toData(r repository.Recommendation) RecommendationData {
@@ -196,8 +205,10 @@ func toData(r repository.Recommendation) RecommendationData {
 
 // buildCandidates derives real, groundable opportunities from data that
 // already exists — no new joins, reuses the dashboard repository the same
-// way pkg/promptsuggestion does.
-func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[int]string, error) {
+// way pkg/promptsuggestion does. The returned country code is the company's
+// primary tracked market (see primaryCountry), used as the default language
+// signal for writeCopy.
+func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[int]string, string, error) {
 	// contexts holds, per candidate id, the plain-text description handed to
 	// Claude — kept separate from the candidate struct so the struct only
 	// carries what actually gets persisted.
@@ -206,7 +217,7 @@ func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[
 
 	urls, err := s.dashboardRepository.GetCitationURLs(companyId, "", "")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 
 	editorialGaps := []candidate{}
@@ -249,7 +260,7 @@ func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[
 
 	overview, err := s.dashboardRepository.GetPromptsOverview(companyId, "", "", "")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	contentGaps := []candidate{}
 	for _, o := range overview {
@@ -301,7 +312,7 @@ func (s recommendationService) buildCandidates(companyId int) ([]candidate, map[
 	all = append(all, capList(existingMentions, 3)...)
 	all = append(all, capList(contentGaps, 20)...)
 
-	return all, contexts, nil
+	return all, contexts, primaryCountry(overview), nil
 }
 
 // extractDomain returns the lowercased host of a URL (stripping "www."),
@@ -323,9 +334,13 @@ func capList(c []candidate, n int) []candidate {
 
 const recommendationBatchSize = 8
 
-func (s recommendationService) writeCopy(companyId int, companyName string, batch []candidate, contexts map[int]string, activeRules []string, guidance string) ([]claudeCopy, error) {
+func (s recommendationService) writeCopy(companyId int, companyName string, batch []candidate, contexts map[int]string, activeRules []string, guidance string, languageHint string) ([]claudeCopy, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Client company: %s\n\n", companyName)
+	fmt.Fprintf(&b, "Client company: %s\n", companyName)
+	if languageHint != "" {
+		fmt.Fprintf(&b, "%s\n", languageHint)
+	}
+	b.WriteString("\n")
 	for _, c := range batch {
 		fmt.Fprintf(&b, "%d. %s\n", c.Id, contexts[c.Id])
 	}
@@ -356,70 +371,89 @@ func (s recommendationService) writeCopy(companyId int, companyName string, batc
 	return copies, nil
 }
 
+// portfolioKinds have no specific AI-engine citation behind them — they're
+// meta observations about the tracked-prompt list itself, so (unlike the
+// citation-grounded kinds) they're persisted with no engine attribution even
+// though Claude now writes their copy too.
+var portfolioKinds = map[string]bool{"branded_prompts": true, "prompt_mix": true}
+
 func (s recommendationService) Generate(companyId, userId int, guidance string) (*RecommendationListResponse, error) {
-	candidates, contexts, err := s.buildCandidates(companyId)
+	candidates, contexts, primaryCountryCode, err := s.buildCandidates(companyId)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
 	}
-	portfolioRecs, err := s.buildPortfolioCandidates(companyId)
+	portfolioCandidates, portfolioContexts, err := s.buildPortfolioCandidates(companyId, len(candidates)+1)
 	if err != nil {
 		logs.Error(err)
 		return nil, errs.NewUnexpectedError()
 	}
-	if len(candidates) == 0 && len(portfolioRecs) == 0 {
+	candidates = append(candidates, portfolioCandidates...)
+	for id, ctx := range portfolioContexts {
+		contexts[id] = ctx
+	}
+	if len(candidates) == 0 {
 		return &RecommendationListResponse{Status: true, Desc: "No new opportunities found", Data: []RecommendationData{}}, nil
 	}
 
+	// The company's primary tracked market (if any) is the default language
+	// for "text"/"why" — a specific candidate's own quoted prompt (see the
+	// system prompt's headline rule) overrides this when one exists.
+	languageHint := ""
+	if countryName := location.Name(primaryCountryCode); countryName != "" {
+		languageHint = fmt.Sprintf(
+			"Client's primary tracked market: %s. Write \"text\" and \"why\" in the language spoken there, for every candidate, UNLESS that candidate's own data quotes a specific tracked prompt/query in a different language — follow that quoted language instead.",
+			countryName,
+		)
+	}
+
+	company, err := s.companyRepository.GetById(companyId)
+	if err != nil {
+		logs.Error(err)
+		return nil, errs.NewUnexpectedError()
+	}
+
+	activeRules, err := s.recommendationRuleRepository.GetActiveTexts(companyId)
+	if err != nil {
+		logs.Error(fmt.Errorf("failed to load recommendation rules for company %d: %w", companyId, err))
+		activeRules = nil
+	}
+	guidance = strings.TrimSpace(guidance)
+
+	// One Claude call per batch: a single call covering every candidate
+	// overflowed the output token limit and truncated the JSON.
+	var batches [][]candidate
+	for i := 0; i < len(candidates); i += recommendationBatchSize {
+		batches = append(batches, candidates[i:min(i+recommendationBatchSize, len(candidates))])
+	}
+
+	batchCopies := make([][]claudeCopy, len(batches))
+	batchErrs := make([]error, len(batches))
+	var wg sync.WaitGroup
+	for i, batch := range batches {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			batchCopies[i], batchErrs[i] = s.writeCopy(companyId, company.Name, batch, contexts, activeRules, guidance, languageHint)
+		}()
+	}
+	wg.Wait()
+
 	copyById := map[int]claudeCopy{}
-	if len(candidates) > 0 {
-		company, err := s.companyRepository.GetById(companyId)
-		if err != nil {
-			logs.Error(err)
-			return nil, errs.NewUnexpectedError()
+	failed := 0
+	for i := range batches {
+		if batchErrs[i] != nil {
+			logs.Error(fmt.Errorf("recommendation batch %d/%d failed for company %d: %w", i+1, len(batches), companyId, batchErrs[i]))
+			failed++
+			continue
 		}
-
-		activeRules, err := s.recommendationRuleRepository.GetActiveTexts(companyId)
-		if err != nil {
-			logs.Error(fmt.Errorf("failed to load recommendation rules for company %d: %w", companyId, err))
-			activeRules = nil
+		for _, cp := range batchCopies[i] {
+			copyById[cp.Id] = cp
 		}
-		guidance = strings.TrimSpace(guidance)
-
-		// One Claude call per batch: a single call covering every candidate
-		// overflowed the output token limit and truncated the JSON.
-		var batches [][]candidate
-		for i := 0; i < len(candidates); i += recommendationBatchSize {
-			batches = append(batches, candidates[i:min(i+recommendationBatchSize, len(candidates))])
-		}
-
-		batchCopies := make([][]claudeCopy, len(batches))
-		batchErrs := make([]error, len(batches))
-		var wg sync.WaitGroup
-		for i, batch := range batches {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				batchCopies[i], batchErrs[i] = s.writeCopy(companyId, company.Name, batch, contexts, activeRules, guidance)
-			}()
-		}
-		wg.Wait()
-
-		failed := 0
-		for i := range batches {
-			if batchErrs[i] != nil {
-				logs.Error(fmt.Errorf("recommendation batch %d/%d failed for company %d: %w", i+1, len(batches), companyId, batchErrs[i]))
-				failed++
-				continue
-			}
-			for _, cp := range batchCopies[i] {
-				copyById[cp.Id] = cp
-			}
-		}
-		// Candidates from a failed batch aren't saved, so the next generate retries them.
-		if failed == len(batches) {
-			return nil, errs.NewUnexpectedError()
-		}
+	}
+	// Candidates from a failed batch aren't saved, so the next generate retries them.
+	if failed == len(batches) {
+		return nil, errs.NewUnexpectedError()
 	}
 
 	tx, err := s.recommendationRepository.NewTransaction()
@@ -430,30 +464,6 @@ func (s recommendationService) Generate(companyId, userId int, guidance string) 
 	defer tx.Rollback()
 
 	data := []RecommendationData{}
-
-	// Portfolio-level recs are written directly in Go — no Claude round trip,
-	// nothing to match by id.
-	for _, pr := range portfolioRecs {
-		stepsJSON, err := json.Marshal(pr.Steps)
-		if err != nil {
-			continue
-		}
-		id, err := s.recommendationRepository.Upsert(tx, repository.Recommendation{
-			CompanyId: companyId, Type: pr.Type, Placement: "general", Impact: pr.Impact,
-			Engine: "", Text: pr.Text, Why: pr.Why, Steps: string(stepsJSON),
-		})
-		if err != nil {
-			logs.Error(err)
-			return nil, errs.NewUnexpectedError()
-		}
-		if id == 0 {
-			continue
-		}
-		data = append(data, RecommendationData{
-			Id: id, CompanyId: companyId, Type: pr.Type, Placement: "general", Impact: pr.Impact,
-			Engine: "", Text: pr.Text, Why: pr.Why, Steps: pr.Steps, Status: "suggested",
-		})
-	}
 
 	for _, c := range candidates {
 		cp, ok := copyById[c.Id]
@@ -467,13 +477,17 @@ func (s recommendationService) Generate(companyId, userId int, guidance string) 
 		if c.Kind == "content_gap" && strings.TrimSpace(cp.Headline) != "" {
 			text = fmt.Sprintf("Publish a new page — \"%s\" — on your site.", strings.TrimSpace(cp.Headline))
 		}
+		engine := "chatgpt"
+		if portfolioKinds[c.Kind] {
+			engine = ""
+		}
 		stepsJSON, err := json.Marshal(cp.Steps)
 		if err != nil {
 			continue
 		}
 		id, err := s.recommendationRepository.Upsert(tx, repository.Recommendation{
 			CompanyId: companyId, Type: c.Type, Placement: c.Placement, Impact: c.Impact,
-			Engine: "chatgpt", Text: text, Link: c.Link, LinkText: c.LinkText,
+			Engine: engine, Text: text, Link: c.Link, LinkText: c.LinkText,
 			Why: cp.Why, Steps: string(stepsJSON), PromptId: c.PromptId,
 		})
 		if err != nil {
@@ -486,7 +500,7 @@ func (s recommendationService) Generate(companyId, userId int, guidance string) 
 		}
 		data = append(data, RecommendationData{
 			Id: id, CompanyId: companyId, Type: c.Type, Placement: c.Placement, Impact: c.Impact,
-			Engine: "chatgpt", Text: text, Link: c.Link, LinkText: c.LinkText,
+			Engine: engine, Text: text, Link: c.Link, LinkText: c.LinkText,
 			Why: cp.Why, Steps: cp.Steps, PromptId: c.PromptId, Status: "suggested",
 		})
 	}
